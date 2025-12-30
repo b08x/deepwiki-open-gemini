@@ -45,3 +45,14 @@ export interface AppSettings {
   selectedModel: string;
   githubToken: string;
 }
+
+export interface SessionData {
+  version: string;
+  timestamp: string;
+  mode: ToolMode;
+  repo: RepoContext;
+  wiki: WikiStructure | null;
+  chatHistory: ChatMessage[];
+  researchIteration: number;
+  settings: AppSettings;
+}

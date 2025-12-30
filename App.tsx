@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { ToolMode, RepoContext, WikiStructure, ChatMessage, RepoFile, AppSettings } from './types';
+import { ToolMode, RepoContext, WikiStructure, ChatMessage, RepoFile, AppSettings, SessionData } from './types';
 import { GeminiService } from './services/geminiService';
 import { GitHubService } from './services/githubService';
 import Markdown from './components/Markdown';
@@ -49,6 +49,7 @@ const App: React.FC = () => {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     geminiRef.current = new GeminiService();
@@ -101,6 +102,66 @@ const App: React.FC = () => {
       setIsFetchingRepo(false);
       setLoading(false);
     }
+  };
+
+  const handleExportSession = () => {
+    const sessionData: SessionData = {
+      version: "1.0.0",
+      timestamp: new Date().toISOString(),
+      mode,
+      repo,
+      wiki,
+      chatHistory,
+      researchIteration,
+      settings
+    };
+
+    const blob = new Blob([JSON.stringify(sessionData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `RM-Session-${repo.repoName}-${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportSession = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string) as SessionData;
+        
+        // Basic validation
+        if (!data.repo || !data.chatHistory) {
+          throw new Error("Invalid session data format.");
+        }
+
+        setRepo(data.repo);
+        setWiki(data.wiki);
+        setChatHistory(data.chatHistory);
+        setMode(data.mode);
+        setResearchIteration(data.researchIteration || 0);
+        setSettings(data.settings);
+        
+        // Reset secondary UI states
+        setFilterQuery('');
+        setExcludedPaths(new Set());
+        setShowFileList(true);
+        
+        alert(`Session Restored: ${data.repo.repoName}`);
+      } catch (err) {
+        console.error("Import failed", err);
+        alert("Failed to import session. Ensure the file is a valid RepoMechanic JSON export.");
+      }
+    };
+    reader.readAsText(file);
+    // Reset file input
+    e.target.value = '';
   };
 
   const togglePath = (path: string) => {
@@ -210,6 +271,14 @@ const App: React.FC = () => {
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 font-sans overflow-hidden">
+      <input 
+        type="file" 
+        ref={fileInputRef} 
+        onChange={handleImportSession} 
+        className="hidden" 
+        accept=".json"
+      />
+
       {/* Settings Modal */}
       {showSettings && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
@@ -320,6 +389,24 @@ const App: React.FC = () => {
                  </span>
                )}
              </div>
+          </div>
+
+          <div className="bg-zinc-950/50 rounded-xl border border-zinc-800 p-3">
+            <label className="text-[10px] font-bold text-zinc-500 uppercase mb-2 block tracking-wider">Session Archives</label>
+            <div className="grid grid-cols-2 gap-2">
+              <button 
+                onClick={handleExportSession}
+                className="bg-zinc-900 border border-zinc-800 py-1.5 rounded text-[10px] font-bold text-zinc-400 hover:bg-zinc-800 hover:text-white transition-all flex items-center justify-center gap-1.5"
+              >
+                <i className="fa-solid fa-download"></i> EXPORT
+              </button>
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                className="bg-zinc-900 border border-zinc-800 py-1.5 rounded text-[10px] font-bold text-zinc-400 hover:bg-zinc-800 hover:text-white transition-all flex items-center justify-center gap-1.5"
+              >
+                <i className="fa-solid fa-upload"></i> IMPORT
+              </button>
+            </div>
           </div>
 
           <div className="bg-zinc-950/50 rounded-xl border border-zinc-800 p-3">
