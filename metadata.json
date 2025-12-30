@@ -1,0 +1,7 @@
+{
+  "name": "RepoMechanic: Analytical Wiki & Code Analyst",
+  "description": "An advanced code analysis and wiki generation platform powered by Gemini, featuring multi-turn deep research, structural RAG, and automated repository mapping with a unified analytical persona.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
