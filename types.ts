@@ -40,3 +40,8 @@ export interface ChatMessage {
   content: string;
   iteration?: number;
 }
+
+export interface AppSettings {
+  selectedModel: string;
+  githubToken: string;
+}

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { ToolMode, RepoContext, WikiStructure, ChatMessage, RepoFile } from './types';
+import { ToolMode, RepoContext, WikiStructure, ChatMessage, RepoFile, AppSettings } from './types';
 import { GeminiService } from './services/geminiService';
 import { GitHubService } from './services/githubService';
 import Markdown from './components/Markdown';
@@ -13,6 +13,12 @@ const DEFAULT_REPO: RepoContext = {
     { path: 'README.md', content: '# Welcome to RepoMechanic\nEnter a GitHub URL in the sidebar to begin analysis.' },
   ]
 };
+
+const MODELS = [
+  { id: 'gemini-3-flash-preview', name: 'Gemini 3 Flash (Optimized)', desc: 'Fast, efficient for standard analysis.' },
+  { id: 'gemini-3-pro-preview', name: 'Gemini 3 Pro (Analytical)', desc: 'Higher reasoning for complex systems.' },
+  { id: 'gemini-2.5-flash-lite-latest', name: 'Gemini Flash Lite', desc: 'Minimal latency for simple queries.' },
+];
 
 const App: React.FC = () => {
   const [mode, setMode] = useState<ToolMode>(ToolMode.WIKI_GEN);
@@ -28,15 +34,41 @@ const App: React.FC = () => {
   const [researchIteration, setResearchIteration] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [showFileList, setShowFileList] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const saved = localStorage.getItem('repomechanic_settings');
+    return saved ? JSON.parse(saved) : {
+      selectedModel: 'gemini-3-flash-preview',
+      githubToken: ''
+    };
+  });
+
   const geminiRef = useRef<GeminiService | null>(null);
   const githubRef = useRef<GitHubService>(new GitHubService());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     geminiRef.current = new GeminiService();
+    githubRef.current.setToken(settings.githubToken);
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem('repomechanic_settings', JSON.stringify(settings));
+    githubRef.current.setToken(settings.githubToken);
+  }, [settings]);
+
+  // Auto-scroll chat history
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
+  }, [chatHistory, loading]);
 
   // Derived filtered repository context
   const filteredRepo = useMemo(() => {
@@ -60,7 +92,7 @@ const App: React.FC = () => {
       setChatHistory([]);
       setRepoUrlInput('');
       setFilterQuery('');
-      setExcludedPaths(new Set()); // Reset exclusions on new repo
+      setExcludedPaths(new Set());
       setShowFileList(true);
     } catch (e: any) {
       console.error(e);
@@ -96,7 +128,7 @@ const App: React.FC = () => {
     }
     setLoading(true);
     try {
-      const structure = await geminiRef.current.generateWikiStructure(filteredRepo);
+      const structure = await geminiRef.current.generateWikiStructure(filteredRepo, settings.selectedModel);
       setWiki(structure);
     } catch (e) {
       console.error(e);
@@ -121,14 +153,14 @@ const App: React.FC = () => {
     try {
       let response = '';
       if (mode === ToolMode.RAG_CHAT) {
-        response = await geminiRef.current.ragChat(filteredRepo, currentInput, chatHistory);
+        response = await geminiRef.current.ragChat(filteredRepo, currentInput, chatHistory, settings.selectedModel);
       } else if (mode === ToolMode.SIMPLE_CHAT) {
-        response = await geminiRef.current.simpleChat(filteredRepo, currentInput);
+        response = await geminiRef.current.simpleChat(filteredRepo, currentInput, settings.selectedModel);
       } else if (mode === ToolMode.DEEP_RESEARCH) {
         const currentIter = researchIteration + 1;
         setResearchIteration(currentIter);
         const prevFindings = chatHistory.filter(c => c.role === 'assistant').map(c => c.content).join("\n\n");
-        response = await geminiRef.current.deepResearch(filteredRepo, currentInput, currentIter, prevFindings);
+        response = await geminiRef.current.deepResearch(filteredRepo, currentInput, currentIter, prevFindings, settings.selectedModel);
       }
       
       const assistantMsg: ChatMessage = { role: 'assistant', content: response, iteration: researchIteration + 1 };
@@ -174,16 +206,88 @@ const App: React.FC = () => {
     }
   };
 
+  const isChatView = mode === ToolMode.RAG_CHAT || mode === ToolMode.SIMPLE_CHAT || mode === ToolMode.DEEP_RESEARCH;
+
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 font-sans overflow-hidden">
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-zinc-900 border border-zinc-800 w-full max-w-lg rounded-3xl p-8 shadow-2xl space-y-8">
+            <div className="flex justify-between items-center">
+              <h2 className="text-xl font-bold flex items-center gap-2">
+                <i className="fa-solid fa-sliders text-zinc-500"></i>
+                System Configuration
+              </h2>
+              <button onClick={() => setShowSettings(false)} className="text-zinc-500 hover:text-white transition-colors">
+                <i className="fa-solid fa-xmark text-lg"></i>
+              </button>
+            </div>
+
+            <div className="space-y-6">
+              <div>
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-4">Inference Engine</label>
+                <div className="space-y-3">
+                  {MODELS.map(m => (
+                    <div 
+                      key={m.id}
+                      onClick={() => setSettings(prev => ({ ...prev, selectedModel: m.id }))}
+                      className={`p-4 rounded-xl border cursor-pointer transition-all ${settings.selectedModel === m.id ? 'bg-zinc-100 border-white' : 'bg-zinc-950/50 border-zinc-800 hover:border-zinc-700'}`}
+                    >
+                      <div className="flex justify-between items-center mb-1">
+                        <span className={`text-sm font-bold ${settings.selectedModel === m.id ? 'text-zinc-950' : 'text-zinc-100'}`}>{m.name}</span>
+                        {settings.selectedModel === m.id && <i className="fa-solid fa-circle-check text-zinc-950"></i>}
+                      </div>
+                      <p className={`text-[10px] ${settings.selectedModel === m.id ? 'text-zinc-700' : 'text-zinc-500'}`}>{m.desc}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">GitHub Authorization</label>
+                <div className="relative">
+                  <i className="fa-solid fa-key absolute left-4 top-1/2 -translate-y-1/2 text-zinc-700 text-xs"></i>
+                  <input 
+                    type="password"
+                    value={settings.githubToken}
+                    onChange={(e) => setSettings(prev => ({ ...prev, githubToken: e.target.value }))}
+                    placeholder="ghp_xxxxxxxxxxxx"
+                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-zinc-500 font-mono transition-colors"
+                  />
+                </div>
+                <p className="text-[9px] text-zinc-600 mt-2 leading-relaxed">
+                  Recommended for private repositories and higher rate limits (5,000 requests/hr). Your token is stored locally.
+                </p>
+              </div>
+            </div>
+
+            <button 
+              onClick={() => setShowSettings(false)}
+              className="w-full bg-zinc-100 text-zinc-950 py-3 rounded-xl font-bold text-sm hover:bg-white transition-colors"
+            >
+              APPLY SETTINGS
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Sidebar */}
       <aside className="w-80 border-r border-zinc-800 flex flex-col bg-zinc-900/50 transition-all duration-300">
-        <div className="p-6">
-          <h1 className="text-xl font-bold flex items-center gap-2 tracking-tight">
-            <span className="bg-zinc-100 text-zinc-950 px-1.5 rounded text-sm font-black">RM</span>
-            RepoMechanic
-          </h1>
-          <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mt-1">Structural Analysis System</p>
+        <div className="p-6 flex justify-between items-center">
+          <div>
+            <h1 className="text-xl font-bold flex items-center gap-2 tracking-tight">
+              <span className="bg-zinc-100 text-zinc-950 px-1.5 rounded text-sm font-black">RM</span>
+              RepoMechanic
+            </h1>
+            <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mt-1">Structural Analysis System</p>
+          </div>
+          <button 
+            onClick={() => setShowSettings(true)}
+            className="w-9 h-9 flex items-center justify-center rounded-lg border border-zinc-800 hover:bg-zinc-800 transition-colors text-zinc-500 hover:text-white"
+          >
+            <i className="fa-solid fa-gear"></i>
+          </button>
         </div>
 
         <div className="px-4 space-y-3">
@@ -194,6 +298,7 @@ const App: React.FC = () => {
                  type="text" 
                  value={repoUrlInput}
                  onChange={(e) => setRepoUrlInput(e.target.value)}
+                 onKeyDown={(e) => e.key === 'Enter' && handleLoadRepo()}
                  placeholder="GitHub URL..."
                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-zinc-500 transition-colors placeholder:text-zinc-700"
                />
@@ -204,6 +309,16 @@ const App: React.FC = () => {
                >
                  {isFetchingRepo ? <i className="fa-solid fa-spinner fa-spin"></i> : "SYNCHRONIZE"}
                </button>
+             </div>
+             <div className="flex items-center justify-between mt-2">
+               <p className="text-[8px] text-zinc-600 leading-tight">
+                 Branch hint: <code>.../tree/main</code>
+               </p>
+               {settings.githubToken && (
+                 <span className="text-[8px] font-black text-emerald-500 uppercase tracking-tighter flex items-center gap-1">
+                   <i className="fa-solid fa-shield-halved text-[7px]"></i> Authenticated
+                 </span>
+               )}
              </div>
           </div>
 
@@ -315,12 +430,14 @@ const App: React.FC = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col relative bg-zinc-950 overflow-hidden">
+      <main className="flex-1 flex flex-col bg-zinc-950 overflow-hidden relative">
         {/* Header */}
-        <header className="h-16 border-b border-zinc-800 flex items-center justify-between px-8 bg-zinc-950/80 backdrop-blur-md sticky top-0 z-10">
+        <header className="h-16 border-b border-zinc-800 flex items-center justify-between px-8 bg-zinc-950/80 backdrop-blur-md z-10">
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono text-zinc-600 uppercase tracking-widest">system:</span>
             <span className="text-xs font-mono text-emerald-400 font-bold tracking-widest">{mode.replace('_', ' ')}</span>
+            <span className="text-zinc-800 mx-2 text-xs">/</span>
+            <span className="text-[10px] font-mono text-zinc-500 truncate">{MODELS.find(m => m.id === settings.selectedModel)?.name}</span>
           </div>
           <div className="flex items-center gap-4">
              {loading && <div className="flex items-center gap-2 text-zinc-500 text-[10px] font-mono"><i className="fa-solid fa-cog fa-spin"></i> PROCESSING</div>}
@@ -328,112 +445,115 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Dynamic Viewport */}
-        <div className="flex-1 overflow-y-auto p-8 max-w-5xl mx-auto w-full pb-32">
-          {mode === ToolMode.WIKI_GEN && (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between mb-8 border-b border-zinc-900 pb-8">
-                <div>
-                  <h2 className="text-2xl font-bold">Structural Mapping Engine</h2>
-                  <p className="text-zinc-500 mt-1 text-sm">Synthesize a comprehensive architectural guide for {repo.repoName}.</p>
-                  {(filterQuery || excludedPaths.size > 0) && (
-                    <div className="inline-flex items-center gap-2 mt-2 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded text-[10px] font-mono text-zinc-500 uppercase">
-                      <i className="fa-solid fa-filter text-[8px]"></i> Manual Overrides Active: {filteredRepo.files.length} Files Selected
+        {/* Scrollable Viewport */}
+        <div 
+          ref={scrollContainerRef}
+          className="flex-1 overflow-y-auto p-8"
+        >
+          <div className="max-w-4xl mx-auto w-full">
+            {mode === ToolMode.WIKI_GEN && (
+              <div className="space-y-6">
+                <div className="flex items-center justify-between mb-8 border-b border-zinc-900 pb-8">
+                  <div>
+                    <h2 className="text-2xl font-bold">Structural Mapping Engine</h2>
+                    <p className="text-zinc-500 mt-1 text-sm">Synthesize a comprehensive architectural guide for {repo.repoName}.</p>
+                    {(filterQuery || excludedPaths.size > 0) && (
+                      <div className="inline-flex items-center gap-2 mt-2 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded text-[10px] font-mono text-zinc-500 uppercase">
+                        <i className="fa-solid fa-filter text-[8px]"></i> Manual Overrides Active: {filteredRepo.files.length} Files Selected
+                      </div>
+                    )}
+                  </div>
+                  <button 
+                    onClick={handleGenerateWiki}
+                    disabled={loading}
+                    className="bg-zinc-100 text-zinc-950 px-8 py-3 rounded-xl font-bold text-sm hover:bg-white transition-all disabled:opacity-50 shadow-xl flex-shrink-0"
+                  >
+                    MAP MECHANISMS
+                  </button>
+                </div>
+
+                {!wiki && !loading && (
+                  <div className="bg-zinc-900/20 border-2 border-dashed border-zinc-800 rounded-3xl h-80 flex flex-col items-center justify-center text-zinc-600">
+                    <div className="bg-zinc-900 p-6 rounded-full mb-4 border border-zinc-800">
+                      <i className="fa-solid fa-diagram-project text-4xl"></i>
                     </div>
-                  )}
-                </div>
-                <button 
-                  onClick={handleGenerateWiki}
-                  disabled={loading}
-                  className="bg-zinc-100 text-zinc-950 px-8 py-3 rounded-xl font-bold text-sm hover:bg-white transition-all disabled:opacity-50 shadow-xl"
-                >
-                  MAP MECHANISMS
-                </button>
-              </div>
-
-              {!wiki && !loading && (
-                <div className="bg-zinc-900/20 border-2 border-dashed border-zinc-800 rounded-3xl h-80 flex flex-col items-center justify-center text-zinc-600">
-                  <div className="bg-zinc-900 p-6 rounded-full mb-4 border border-zinc-800">
-                    <i className="fa-solid fa-diagram-project text-4xl"></i>
+                    <p className="text-sm font-medium tracking-tight">Interrogation pending. Initiate analysis to visualize repository hierarchy.</p>
                   </div>
-                  <p className="text-sm font-medium tracking-tight">Interrogation pending. Initiate analysis to visualize repository hierarchy.</p>
-                </div>
-              )}
+                )}
 
-              {wiki && (
-                <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
-                  <div className="mb-12">
-                    <h3 className="text-5xl font-black tracking-tighter text-white mb-4">{wiki.title}</h3>
-                    <p className="text-xl text-zinc-400 max-w-3xl leading-relaxed">{wiki.description}</p>
-                  </div>
+                {wiki && (
+                  <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+                    <div className="mb-12">
+                      <h3 className="text-5xl font-black tracking-tighter text-white mb-4">{wiki.title}</h3>
+                      <p className="text-xl text-zinc-400 max-w-3xl leading-relaxed">{wiki.description}</p>
+                    </div>
 
-                  {wiki.sections && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-16">
-                      {wiki.sections.map(sec => (
-                        <div key={sec.id} className="bg-zinc-900/40 border border-zinc-800/80 p-8 rounded-2xl hover:bg-zinc-900/60 transition-colors">
-                          <h4 className="font-black text-xs uppercase tracking-[0.2em] text-zinc-500 mb-6 flex items-center gap-3">
-                             <span className="w-4 h-[1px] bg-zinc-700"></span>
-                             {sec.title}
-                          </h4>
-                          <div className="space-y-3">
-                            {sec.pages.map(pid => {
-                              const page = wiki.pages.find(p => p.id === pid);
-                              return (
-                                <div key={pid} className="text-sm font-medium text-zinc-300 hover:text-white cursor-pointer flex items-center justify-between group border-b border-zinc-800/50 pb-2">
-                                  <span>{page?.title || pid}</span>
-                                  <i className="fa-solid fa-arrow-right text-[10px] opacity-0 group-hover:opacity-100 -translate-x-2 group-hover:translate-x-0 transition-all"></i>
-                                </div>
-                              );
-                            })}
+                    {wiki.sections && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-16">
+                        {wiki.sections.map(sec => (
+                          <div key={sec.id} className="bg-zinc-900/40 border border-zinc-800/80 p-8 rounded-2xl hover:bg-zinc-900/60 transition-colors">
+                            <h4 className="font-black text-xs uppercase tracking-[0.2em] text-zinc-500 mb-6 flex items-center gap-3">
+                               <span className="w-4 h-[1px] bg-zinc-700"></span>
+                               {sec.title}
+                            </h4>
+                            <div className="space-y-3">
+                              {sec.pages.map(pid => {
+                                const page = wiki.pages.find(p => p.id === pid);
+                                return (
+                                  <div key={pid} className="text-sm font-medium text-zinc-300 hover:text-white cursor-pointer flex items-center justify-between group border-b border-zinc-800/50 pb-2">
+                                    <span>{page?.title || pid}</span>
+                                    <i className="fa-solid fa-arrow-right text-[10px] opacity-0 group-hover:opacity-100 -translate-x-2 group-hover:translate-x-0 transition-all"></i>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="space-y-12">
+                      <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-600 text-center border-b border-zinc-900 pb-4">Logic Entity Breakdown</h4>
+                      {wiki.pages.map(page => (
+                        <div key={page.id} className="group relative border-l border-zinc-800 hover:border-zinc-600 pl-10 py-6 transition-colors">
+                          <div className="absolute left-0 top-10 w-4 h-[1px] bg-zinc-800 group-hover:bg-zinc-600 transition-colors"></div>
+                          <div className="flex items-center gap-4 mb-4">
+                             <h5 className="text-2xl font-bold text-zinc-100 tracking-tight">{page.title}</h5>
+                             <span className={`text-[9px] px-2 py-0.5 rounded-full font-black tracking-widest uppercase border ${page.importance === 'high' ? 'bg-amber-900/20 text-amber-400 border-amber-900/50' : 'bg-zinc-900 text-zinc-600 border-zinc-800'}`}>
+                                {page.importance}
+                             </span>
+                          </div>
+                          <p className="text-zinc-400 mb-6 max-w-4xl text-base leading-relaxed font-medium">{page.description}</p>
+                          
+                          <div className="flex flex-wrap gap-8 text-[11px] font-mono">
+                            <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800">
+                              <span className="text-zinc-600 block mb-2 font-black uppercase tracking-tighter">Subsystem Source</span>
+                              <div className="flex flex-wrap gap-2">
+                                {page.relevant_files.map(f => <span key={f} className="text-zinc-400 bg-zinc-950 px-2 py-1 rounded border border-zinc-800/50">{f}</span>)}
+                              </div>
+                            </div>
                           </div>
                         </div>
                       ))}
                     </div>
-                  )}
-
-                  <div className="space-y-12">
-                    <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-600 text-center border-b border-zinc-900 pb-4">Logic Entity Breakdown</h4>
-                    {wiki.pages.map(page => (
-                      <div key={page.id} className="group relative border-l border-zinc-800 hover:border-zinc-600 pl-10 py-6 transition-colors">
-                        <div className="absolute left-0 top-10 w-4 h-[1px] bg-zinc-800 group-hover:bg-zinc-600 transition-colors"></div>
-                        <div className="flex items-center gap-4 mb-4">
-                           <h5 className="text-2xl font-bold text-zinc-100 tracking-tight">{page.title}</h5>
-                           <span className={`text-[9px] px-2 py-0.5 rounded-full font-black tracking-widest uppercase border ${page.importance === 'high' ? 'bg-amber-900/20 text-amber-400 border-amber-900/50' : 'bg-zinc-900 text-zinc-600 border-zinc-800'}`}>
-                              {page.importance}
-                           </span>
-                        </div>
-                        <p className="text-zinc-400 mb-6 max-w-4xl text-base leading-relaxed font-medium">{page.description}</p>
-                        
-                        <div className="flex flex-wrap gap-8 text-[11px] font-mono">
-                          <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800">
-                            <span className="text-zinc-600 block mb-2 font-black uppercase tracking-tighter">Subsystem Source</span>
-                            <div className="flex flex-wrap gap-2">
-                              {page.relevant_files.map(f => <span key={f} className="text-zinc-400 bg-zinc-950 px-2 py-1 rounded border border-zinc-800/50">{f}</span>)}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
                   </div>
-                </div>
-              )}
-            </div>
-          )}
+                )}
+              </div>
+            )}
 
-          {(mode === ToolMode.RAG_CHAT || mode === ToolMode.SIMPLE_CHAT || mode === ToolMode.DEEP_RESEARCH) && (
-            <div className="flex flex-col h-full">
-              <div className="flex-1 space-y-12 mb-20">
+            {isChatView && (
+              <div className="space-y-12 pb-8">
                 {chatHistory.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-20 text-zinc-700 animate-in fade-in duration-1000">
                     <i className="fa-solid fa-terminal text-5xl mb-6 opacity-20"></i>
-                    <p className="text-sm font-mono tracking-widest uppercase">Awaiting structural interrogation parameters...</p>
+                    <p className="text-sm font-mono tracking-widest uppercase text-center">Awaiting structural interrogation parameters...</p>
                     {(filterQuery || excludedPaths.size > 0) && (
                       <p className="text-[10px] text-zinc-600 font-mono mt-2">Active Context restricted to {filteredRepo.files.length} specific files.</p>
                     )}
                   </div>
                 )}
                 {chatHistory.map((msg, idx) => (
-                  <div key={idx} className={`flex gap-8 group animate-in slide-in-from-bottom-2 duration-300 ${msg.role === 'assistant' ? 'bg-zinc-900/20 -mx-6 px-6 py-10 rounded-3xl border border-zinc-800/50' : ''}`}>
+                  <div key={idx} className={`flex gap-6 group animate-in slide-in-from-bottom-2 duration-300 ${msg.role === 'assistant' ? 'bg-zinc-900/20 -mx-6 px-6 py-10 rounded-3xl border border-zinc-800/50 shadow-inner' : ''}`}>
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-black border transition-all ${msg.role === 'user' ? 'bg-zinc-800 border-zinc-700 text-zinc-500' : 'bg-zinc-100 border-white text-zinc-950 shadow-lg'}`}>
                       {msg.role === 'user' ? 'USR' : 'SYS'}
                     </div>
@@ -449,7 +569,7 @@ const App: React.FC = () => {
                   </div>
                 ))}
                 {loading && (
-                  <div className="flex gap-8 animate-pulse bg-zinc-900/20 -mx-6 px-6 py-10 rounded-3xl border border-zinc-800/50">
+                  <div className="flex gap-6 animate-pulse bg-zinc-900/20 -mx-6 px-6 py-10 rounded-3xl border border-zinc-800/50 shadow-inner">
                     <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center flex-shrink-0">
                       <div className="w-2 h-2 bg-zinc-600 rounded-full animate-bounce"></div>
                     </div>
@@ -460,56 +580,61 @@ const App: React.FC = () => {
                   </div>
                 )}
               </div>
+            )}
+          </div>
+        </div>
 
-              {/* Chat Input Bar */}
-              <div className="fixed bottom-10 left-[calc(20rem+2rem)] right-10 max-w-4xl mx-auto z-20 transition-all duration-300">
-                <div className="bg-zinc-900/90 backdrop-blur-2xl border border-zinc-800/50 p-3 rounded-[2rem] shadow-2xl flex gap-3 items-end ring-1 ring-zinc-800">
-                   <button 
-                     onClick={toggleRecording}
-                     className={`p-4 rounded-2xl transition-all flex items-center justify-center ${isRecording ? 'bg-red-900/30 text-red-400 ring-1 ring-red-900/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'hover:bg-zinc-800 text-zinc-500'}`}
-                   >
-                     <i className={`fa-solid ${isRecording ? 'fa-stop' : 'fa-microphone'} text-sm`}></i>
-                   </button>
-                   <textarea
-                     value={input}
-                     onChange={(e) => setInput(e.target.value)}
-                     onKeyDown={(e) => {
-                       if (e.key === 'Enter' && !e.shiftKey) {
-                         e.preventDefault();
-                         handleChat();
-                       }
-                     }}
-                     placeholder={mode === ToolMode.DEEP_RESEARCH ? "Enter research objective..." : "Structural interrogation..."}
-                     className="flex-1 bg-transparent border-none focus:ring-0 p-4 text-sm text-zinc-100 min-h-[56px] max-h-48 resize-none scrollbar-hide font-medium"
-                     rows={1}
-                   />
-                   <button 
-                     onClick={handleChat}
-                     disabled={loading || !input.trim()}
-                     className="bg-zinc-100 text-zinc-950 h-14 w-14 rounded-2xl font-black hover:bg-white transition-all disabled:opacity-10 flex items-center justify-center shadow-lg active:scale-95"
-                   >
-                     <i className="fa-solid fa-chevron-up"></i>
-                   </button>
-                </div>
-                <div className="flex justify-between items-center px-6 py-3">
-                  <p className="text-[9px] text-zinc-600 font-black uppercase tracking-[0.2em]">
-                    Context: {repo.repoName} • {filteredRepo.files.length} active Files { (filterQuery || excludedPaths.size > 0) && `(Manual Override Active)`}
-                  </p>
-                  {mode === ToolMode.DEEP_RESEARCH && (
-                    <div className="flex items-center gap-2">
-                       <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Synthesis Phase</span>
-                       <div className="flex gap-1">
-                          {[1,2,3,4].map(s => (
-                            <div key={s} className={`w-2 h-1 rounded-full ${researchIteration >= s ? 'bg-emerald-500' : 'bg-zinc-800'}`}></div>
-                          ))}
-                       </div>
-                    </div>
-                  )}
-                </div>
+        {/* Static Input Footer - Made Opaque to prevent bleed-through */}
+        {isChatView && (
+          <div className="bg-zinc-950 border-t border-zinc-800 px-8 py-6 z-20">
+            <div className="max-w-4xl mx-auto space-y-4">
+              <div className="bg-zinc-900 border border-zinc-800 p-2 rounded-[1.5rem] shadow-2xl flex gap-3 items-end ring-1 ring-zinc-800">
+                <button 
+                  onClick={toggleRecording}
+                  className={`p-3.5 rounded-xl transition-all flex items-center justify-center flex-shrink-0 ${isRecording ? 'bg-red-900/30 text-red-400 ring-1 ring-red-900/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'hover:bg-zinc-800 text-zinc-500'}`}
+                >
+                  <i className={`fa-solid ${isRecording ? 'fa-stop' : 'fa-microphone'} text-sm`}></i>
+                </button>
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleChat();
+                    }
+                  }}
+                  placeholder={mode === ToolMode.DEEP_RESEARCH ? "Enter research objective..." : "Structural interrogation..."}
+                  className="flex-1 bg-transparent border-none focus:ring-0 p-3.5 text-sm text-zinc-100 min-h-[52px] max-h-48 resize-none scrollbar-hide font-medium"
+                  rows={1}
+                />
+                <button 
+                  onClick={handleChat}
+                  disabled={loading || !input.trim()}
+                  className="bg-zinc-100 text-zinc-950 h-12 w-12 rounded-xl font-black hover:bg-white transition-all disabled:opacity-10 flex items-center justify-center shadow-lg active:scale-95 flex-shrink-0"
+                >
+                  <i className="fa-solid fa-chevron-up"></i>
+                </button>
+              </div>
+              
+              <div className="flex justify-between items-center px-4">
+                <p className="text-[9px] text-zinc-600 font-black uppercase tracking-[0.2em]">
+                  Context: {repo.repoName} • {filteredRepo.files.length} active Files { (filterQuery || excludedPaths.size > 0) && `(Restricted)`}
+                </p>
+                {mode === ToolMode.DEEP_RESEARCH && (
+                  <div className="flex items-center gap-2">
+                     <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Synthesis Phase</span>
+                     <div className="flex gap-1">
+                        {[1,2,3,4].map(s => (
+                          <div key={s} className={`w-2 h-0.5 rounded-full ${researchIteration >= s ? 'bg-emerald-500' : 'bg-zinc-800'}`}></div>
+                        ))}
+                     </div>
+                  </div>
+                )}
               </div>
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </main>
     </div>
   );

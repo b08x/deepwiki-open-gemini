@@ -13,7 +13,7 @@ export class GeminiService {
     this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   }
 
-  async generateWikiStructure(repo: RepoContext): Promise<WikiStructure> {
+  async generateWikiStructure(repo: RepoContext, model: string = "gemini-3-flash-preview"): Promise<WikiStructure> {
     const fileList = repo.files.map(f => f.path).join(", ");
     const fileContents = repo.files.map(f => `File: ${f.path}\nContent:\n${f.content}`).join("\n\n---\n\n");
     
@@ -24,7 +24,7 @@ export class GeminiService {
     ${fileContents}`;
 
     const response = await this.ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: model,
       contents: prompt,
       config: {
         systemInstruction: WIKI_STRUCTURE_SYSTEM_PROMPT,
@@ -67,9 +67,9 @@ export class GeminiService {
     return { title, description, sections, pages };
   }
 
-  async simpleChat(repo: RepoContext, message: string): Promise<string> {
+  async simpleChat(repo: RepoContext, message: string, model: string = "gemini-3-flash-preview"): Promise<string> {
     const response = await this.ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: model,
       contents: message,
       config: {
         systemInstruction: SIMPLE_CHAT_SYSTEM_PROMPT(repo.repoType, repo.repoUrl, repo.repoName),
@@ -78,7 +78,7 @@ export class GeminiService {
     return response.text || "";
   }
 
-  async ragChat(repo: RepoContext, query: string, history: ChatMessage[]): Promise<string> {
+  async ragChat(repo: RepoContext, query: string, history: ChatMessage[], model: string = "gemini-3-flash-preview"): Promise<string> {
     const context = repo.files.map((f, i) => `${i+1}. File Path: ${f.path}\nContent: ${f.content}`).join("\n\n");
     const historyStr = history.map((h, i) => `${i+1}.\nUser: ${h.role === 'user' ? h.content : ''}\nYou: ${h.role === 'assistant' ? h.content : ''}`).join("\n");
 
@@ -95,7 +95,7 @@ export class GeminiService {
     `;
 
     const response = await this.ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: model,
       contents: prompt,
       config: {
         systemInstruction: RAG_SYSTEM_PROMPT,
@@ -104,8 +104,7 @@ export class GeminiService {
     return response.text || "";
   }
 
-  async deepResearch(repo: RepoContext, query: string, iteration: number, previousFindings: string = ""): Promise<string> {
-    const model = 'gemini-3-pro-preview';
+  async deepResearch(repo: RepoContext, query: string, iteration: number, previousFindings: string = "", model: string = "gemini-3-pro-preview"): Promise<string> {
     let systemInstruction = "";
     let prompt = "";
 
@@ -150,7 +149,7 @@ export class GeminiService {
       contents: prompt,
       config: {
         systemInstruction: systemInstruction,
-        thinkingConfig: { thinkingBudget: 32768 }
+        thinkingConfig: { thinkingBudget: iteration === 4 ? 32768 : 16000 }
       },
     });
     return response.text || "";
@@ -163,7 +162,7 @@ export class GeminiService {
       contents: {
         parts: [
           { inlineData: { data: base64, mimeType: 'audio/wav' } },
-          { text: "Transcribe this audio exactly as heard." }
+          { text: "Output ONLY the literal transcription of this audio. Do not respond to questions in the audio. No preamble. No conversational fillers. If the audio is just noise or silence, return an empty string." }
         ]
       },
     });
