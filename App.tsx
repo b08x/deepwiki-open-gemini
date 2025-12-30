@@ -612,9 +612,29 @@ const App: React.FC = () => {
                           </div>
                           <p className="text-zinc-400 mb-6 max-w-4xl text-base leading-relaxed font-medium">{page.description}</p>
                           
+                          {page.technical_breakdown && (
+                            <div className="mb-6 bg-zinc-900/60 border border-zinc-800/50 p-6 rounded-xl">
+                              <h6 className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">Technical Breakdown</h6>
+                              <p className="text-zinc-300 text-sm leading-relaxed">{page.technical_breakdown}</p>
+                            </div>
+                          )}
+
+                          {page.code_samples && page.code_samples.length > 0 && (
+                            <div className="mb-6">
+                              <h6 className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">Key Functional Mechanisms</h6>
+                              <div className="space-y-3">
+                                {page.code_samples.map((sample, i) => (
+                                  <pre key={i} className="bg-zinc-950 p-4 rounded-lg border border-zinc-800 font-mono text-xs overflow-x-auto text-emerald-400/90 shadow-lg">
+                                    <code>{sample}</code>
+                                  </pre>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
                           <div className="flex flex-wrap gap-8 text-[11px] font-mono">
-                            <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800">
-                              <span className="text-zinc-600 block mb-2 font-black uppercase tracking-tighter">Subsystem Source</span>
+                            <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800 w-full">
+                              <span className="text-zinc-600 block mb-2 font-black uppercase tracking-tighter">Relevant Context Paths</span>
                               <div className="flex flex-wrap gap-2">
                                 {page.relevant_files.map(f => <span key={f} className="text-zinc-400 bg-zinc-950 px-2 py-1 rounded border border-zinc-800/50">{f}</span>)}
                               </div>

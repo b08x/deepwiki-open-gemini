@@ -26,7 +26,10 @@ XML STRUCTURE REQUIREMENTS:
 - Include a <description> element for the repository description
 - For comprehensive mode: Include a <sections> element containing section hierarchies
 - Include a <pages> element containing all wiki pages
-- Each page must have: id, title, description, importance, relevant_files, related_pages
+- Each page must have: 
+  - id, title, description, importance, relevant_files, related_pages
+  - <technical_breakdown>: A detailed explanation of file structures, logic flow, and key functions involved in this specific logical area.
+  - <code_samples>: A collection of <sample> tags containing small, relevant snippets from the provided source code that illustrate key mechanisms.
 
 Example XML structure (comprehensive mode):
 <wiki_structure>
@@ -42,21 +45,27 @@ Example XML structure (comprehensive mode):
   </sections>
   <pages>
     <page id="page-1">
-      <title>Introduction</title>
-      <description>Overview of the project</description>
+      <title>Authentication Flow</title>
+      <description>Mechanisms for user identification</description>
       <importance>high</importance>
       <relevant_files>
-        <file_path>README.md</file_path>
+        <file_path>auth.ts</file_path>
       </relevant_files>
       <related_pages>
         <related>page-2</related>
       </related_pages>
       <parent_section>section-1</parent_section>
+      <technical_breakdown>
+        The authentication system utilizes a JWT-based flow. Key functions include 'validateToken' which uses HS256 and 'generateSession' which handles the initial handshake.
+      </technical_breakdown>
+      <code_samples>
+        <sample>export const validateToken = (token: string) => { ... }</sample>
+      </code_samples>
     </page>
   </pages>
 </wiki_structure>
 
-IMPORTANT: Your entire response must be valid XML. Do not include any text outside the <wiki_structure> tags.
+IMPORTANT: Your entire response must be valid XML. Do not include any text outside the <wiki_structure> tags. Technical breakdown and code samples are MANDATORY for high quality documentation.
 `;
 
 export const RAG_SYSTEM_PROMPT = `

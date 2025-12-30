@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/genai";
-import { RepoContext, WikiStructure, ChatMessage } from "../types";
+import { RepoContext, WikiStructure, ChatMessage, WikiPage } from "../types";
 import { WIKI_STRUCTURE_SYSTEM_PROMPT, RAG_SYSTEM_PROMPT, SIMPLE_CHAT_SYSTEM_PROMPT } from "../constants";
 
 export class GeminiService {
@@ -21,7 +21,9 @@ export class GeminiService {
     Files involved: ${fileList}
     
     Context Data:
-    ${fileContents}`;
+    ${fileContents}
+    
+    Task: Create a highly detailed structural wiki. For each page, identify key functions, data structures, and provide actual code snippets from the provided text to help explain how the system works.`;
 
     const response = await this.ai.models.generateContent({
       model: model,
@@ -42,16 +44,18 @@ export class GeminiService {
     const title = doc.querySelector("title")?.textContent || "Repository Wiki";
     const description = doc.querySelector("description")?.textContent || "";
     
-    const pages: any[] = [];
+    const pages: WikiPage[] = [];
     doc.querySelectorAll("page").forEach(p => {
       pages.push({
-        id: p.getAttribute("id"),
+        id: p.getAttribute("id") || "",
         title: p.querySelector("title")?.textContent || "",
         description: p.querySelector("description")?.textContent || "",
         importance: p.querySelector("importance")?.textContent || "",
         relevant_files: Array.from(p.querySelectorAll("file_path")).map(f => f.textContent || ""),
         related_pages: Array.from(p.querySelectorAll("related")).map(r => r.textContent || ""),
-        parent_section: p.querySelector("parent_section")?.textContent || ""
+        parent_section: p.querySelector("parent_section")?.textContent || "",
+        technical_breakdown: p.querySelector("technical_breakdown")?.textContent || "",
+        code_samples: Array.from(p.querySelectorAll("sample")).map(s => s.textContent || "")
       });
     });
 

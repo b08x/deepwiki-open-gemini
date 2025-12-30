@@ -26,6 +26,8 @@ export interface WikiPage {
   relevant_files: string[];
   related_pages: string[];
   parent_section?: string;
+  technical_breakdown?: string;
+  code_samples?: string[];
 }
 
 export interface WikiStructure {
