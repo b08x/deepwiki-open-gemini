@@ -3,7 +3,8 @@ export enum ToolMode {
   WIKI_GEN = 'wiki_gen',
   RAG_CHAT = 'rag_chat',
   DEEP_RESEARCH = 'deep_research',
-  SIMPLE_CHAT = 'simple_chat'
+  SIMPLE_CHAT = 'simple_chat',
+  BACKLOG_STEVE = 'backlog_steve'
 }
 
 export interface RepoContext {

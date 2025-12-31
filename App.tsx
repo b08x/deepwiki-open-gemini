@@ -94,6 +94,18 @@ const App: React.FC = () => {
     }
   }, [isDiagramModalOpen, diagramCode]);
 
+  // Steve Initial Greeting
+  useEffect(() => {
+    if (mode === ToolMode.BACKLOG_STEVE && chatHistory.length === 0) {
+      setChatHistory([
+        { 
+          role: 'assistant', 
+          content: "*Sighs digitally*\n\n`console.log(new Date());` // Let's see how much time we're wasting today.\n\nI've parsed the current 'mess' you've synchronized. It's... certainly something. If you want me to attempt transmuting your brain dumps or meeting notes into a backlog that a Jira board might actually accept without vomiting, upload your chaos or start typing. I'll be here, questioning my life choices." 
+        }
+      ]);
+    }
+  }, [mode]);
+
   const filteredRepo = useMemo(() => {
     const query = filterQuery.toLowerCase();
     const filteredFiles = repo.files.filter(f => {
@@ -174,6 +186,35 @@ const App: React.FC = () => {
     const a = document.createElement('a');
     a.href = url;
     a.download = `RM-DeepResearch-${repo.repoName}-${new Date().toISOString().slice(0,10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportSanitizedBacklog = () => {
+    const lastSteveMsg = [...chatHistory].reverse().find(m => m.role === 'assistant' && (m.content.includes('The Backlog') || m.content.includes('📗')));
+    
+    if (!lastSteveMsg) {
+      alert("Steve hasn't generated a sanitized backlog yet. Give him something to groan about first.");
+      return;
+    }
+
+    // Robust extraction: Search for the Backlog header and take everything from there to the end
+    // This ensures we get the stories, verdict, and suggestions without brittle string splitting.
+    const backlogHeaderRegex = /### .*The Backlog/i;
+    const match = lastSteveMsg.content.match(backlogHeaderRegex);
+    
+    let exportedContent = lastSteveMsg.content;
+    if (match && match.index !== undefined) {
+      exportedContent = lastSteveMsg.content.substring(match.index);
+    }
+
+    const md = `# Sanitized Backlog - ${repo.repoName}\n\n*Generated via RepoMechanic (Steve Persona)*\n*Timestamp: ${new Date().toLocaleString()}*\n\n---\n\n${exportedContent}`;
+    
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Sanitized-Backlog-${repo.repoName.replace(/\s+/g, '-')}.md`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -273,6 +314,8 @@ const App: React.FC = () => {
         response = await geminiRef.current.ragChat(filteredRepo, currentInput, chatHistory, settings.selectedModel);
       } else if (mode === ToolMode.SIMPLE_CHAT) {
         response = await geminiRef.current.simpleChat(filteredRepo, currentInput, settings.selectedModel);
+      } else if (mode === ToolMode.BACKLOG_STEVE) {
+        response = await geminiRef.current.backlogInterrogator(filteredRepo, currentInput, chatHistory, settings.selectedModel);
       }
       
       const assistantMsg: ChatMessage = { role: 'assistant', content: response };
@@ -377,7 +420,7 @@ const App: React.FC = () => {
     }
   };
 
-  const isChatView = mode === ToolMode.RAG_CHAT || mode === ToolMode.SIMPLE_CHAT || mode === ToolMode.DEEP_RESEARCH;
+  const isChatView = mode === ToolMode.RAG_CHAT || mode === ToolMode.SIMPLE_CHAT || mode === ToolMode.DEEP_RESEARCH || mode === ToolMode.BACKLOG_STEVE;
   const deepResearchPhases = ["PLANNING", "STRUCTURAL_MAPPING", "INTERACTION_ANALYSIS", "FINAL_SYNTHESIS"];
 
   return (
@@ -565,6 +608,7 @@ const App: React.FC = () => {
           {[
             { id: ToolMode.WIKI_GEN, icon: 'fa-map', label: 'Wiki Generator' },
             { id: ToolMode.RAG_CHAT, icon: 'fa-brain', label: 'RAG Assistant' },
+            { id: ToolMode.BACKLOG_STEVE, icon: 'fa-clipboard-check', label: 'Steve (Agile Grinder)' },
             { id: ToolMode.DEEP_RESEARCH, icon: 'fa-microscope', label: 'Deep Research' },
             { id: ToolMode.SIMPLE_CHAT, icon: 'fa-comments', label: 'Simple Chat' },
           ].map(m => (
@@ -583,7 +627,9 @@ const App: React.FC = () => {
         <header className="h-16 border-b border-zinc-800 flex items-center justify-between px-8 bg-zinc-950/80 backdrop-blur-md z-10">
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono text-zinc-600 uppercase tracking-widest">system:</span>
-            <span className="text-xs font-mono text-emerald-400 font-bold tracking-widest">{mode.replace('_', ' ')}</span>
+            <span className={`text-xs font-mono font-bold tracking-widest ${mode === ToolMode.BACKLOG_STEVE ? 'text-slate-400' : 'text-emerald-400'}`}>
+              {mode.replace('_', ' ')}
+            </span>
             <span className="text-zinc-800 mx-2 text-xs">/</span>
             <span className="text-[10px] font-mono text-zinc-500 truncate">{MODELS.find(m => m.id === settings.selectedModel)?.name}</span>
           </div>
@@ -662,13 +708,13 @@ const App: React.FC = () => {
                 {chatHistory.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-20 text-zinc-700 animate-in fade-in duration-1000">
                     <i className="fa-solid fa-terminal text-5xl mb-6 opacity-20"></i>
-                    <p className="text-sm font-mono tracking-widest uppercase text-center">Awaiting structural interrogation parameters...</p>
+                    <p className="text-sm font-mono tracking-widest uppercase text-center">Awaiting interrogation parameters...</p>
                   </div>
                 )}
                 {chatHistory.map((msg, idx) => (
                   <div key={idx} className={`flex gap-6 group animate-in slide-in-from-bottom-2 duration-300 ${msg.role === 'assistant' ? 'bg-zinc-900/20 -mx-6 px-6 py-10 rounded-3xl border border-zinc-800/50 shadow-inner' : ''}`}>
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-black border transition-all ${msg.role === 'user' ? 'bg-zinc-800 border-zinc-700 text-zinc-500' : 'bg-zinc-100 border-white text-zinc-950 shadow-lg'}`}>
-                      {msg.role === 'user' ? 'OBJ' : 'PHS'}
+                      {msg.role === 'user' ? (mode === ToolMode.BACKLOG_STEVE ? 'RAW' : 'OBJ') : (mode === ToolMode.BACKLOG_STEVE ? 'STV' : 'PHS')}
                     </div>
                     <div className="flex-1 min-w-0 relative">
                       {msg.role === 'assistant' && (
@@ -704,6 +750,18 @@ const App: React.FC = () => {
                    </div>
                 )}
 
+                {mode === ToolMode.BACKLOG_STEVE && !loading && chatHistory.length > 1 && chatHistory.some(m => m.content.includes('Backlog')) && (
+                   <div className="flex justify-center mt-12 animate-in fade-in zoom-in duration-500">
+                     <button 
+                       onClick={handleExportSanitizedBacklog}
+                       className="group bg-slate-600 hover:bg-slate-500 text-white px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl flex items-center gap-3 transition-all active:scale-95"
+                     >
+                       <i className="fa-solid fa-clipboard-list text-sm"></i>
+                       Export Sanitized Backlog
+                     </button>
+                   </div>
+                )}
+
                 {(loading || isResearching) && (
                   <div className="flex gap-6 animate-pulse bg-zinc-900/20 -mx-6 px-6 py-10 rounded-3xl border border-zinc-800/50 shadow-inner">
                     <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center flex-shrink-0">
@@ -732,16 +790,20 @@ const App: React.FC = () => {
                   value={input} 
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChat(); } }}
-                  placeholder={mode === ToolMode.DEEP_RESEARCH ? "Define research objective (Automated 4-stage pipeline)..." : "Structural interrogation..."}
+                  placeholder={
+                    mode === ToolMode.DEEP_RESEARCH ? "Define research objective..." : 
+                    mode === ToolMode.BACKLOG_STEVE ? "Drop notes or snippets for Steve to grill..." :
+                    "Structural interrogation..."
+                  }
                   disabled={isResearching}
                   className="flex-1 bg-transparent border-none focus:ring-0 p-3.5 text-sm text-zinc-100 min-h-[52px] max-h-48 resize-none scrollbar-hide font-medium" rows={1} 
                 />
                 <button 
                   onClick={handleChat} 
                   disabled={loading || !input.trim() || isResearching}
-                  className="bg-zinc-100 text-zinc-950 h-12 w-12 rounded-xl font-black hover:bg-white transition-all disabled:opacity-10 flex items-center justify-center shadow-lg active:scale-95 flex-shrink-0"
+                  className={`h-12 w-12 rounded-xl font-black transition-all disabled:opacity-10 flex items-center justify-center shadow-lg active:scale-95 flex-shrink-0 ${mode === ToolMode.BACKLOG_STEVE ? 'bg-slate-200 text-slate-950 hover:bg-white' : 'bg-zinc-100 text-zinc-950 hover:bg-white'}`}
                 >
-                  {isResearching ? <i className="fa-solid fa-spinner fa-spin text-xs"></i> : <i className="fa-solid fa-chevron-up"></i>}
+                  {(loading || isResearching) ? <i className="fa-solid fa-spinner fa-spin text-xs"></i> : <i className="fa-solid fa-chevron-up"></i>}
                 </button>
               </div>
               <div className="flex justify-between items-center px-4">
@@ -757,6 +819,12 @@ const App: React.FC = () => {
                           ></div>
                         ))}
                      </div>
+                  </div>
+                )}
+                {mode === ToolMode.BACKLOG_STEVE && (
+                  <div className="flex items-center gap-2">
+                     <i className="fa-solid fa-circle-nodes text-slate-600 text-[8px] animate-pulse"></i>
+                     <span className="text-[9px] font-black text-slate-600 uppercase tracking-widest">Steve is active & unimpressed</span>
                   </div>
                 )}
               </div>

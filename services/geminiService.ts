@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/genai";
 import { RepoContext, WikiStructure, ChatMessage, WikiPage } from "../types";
-import { WIKI_STRUCTURE_SYSTEM_PROMPT, RAG_SYSTEM_PROMPT, SIMPLE_CHAT_SYSTEM_PROMPT, UNIFIED_PERSONA } from "../constants";
+import { WIKI_STRUCTURE_SYSTEM_PROMPT, RAG_SYSTEM_PROMPT, SIMPLE_CHAT_SYSTEM_PROMPT, UNIFIED_PERSONA, STEVE_SYSTEM_PROMPT } from "../constants";
 
 export class GeminiService {
   private ai: GoogleGenAI;
@@ -77,6 +77,33 @@ export class GeminiService {
       contents: message,
       config: {
         systemInstruction: SIMPLE_CHAT_SYSTEM_PROMPT(repo.repoType, repo.repoUrl, repo.repoName),
+      },
+    });
+    return response.text || "";
+  }
+
+  async backlogInterrogator(repo: RepoContext, query: string, history: ChatMessage[], model: string = "gemini-3-pro-preview"): Promise<string> {
+    const context = repo.files.map((f, i) => `${i+1}. File Path: ${f.path}\nContent: ${f.content}`).join("\n\n");
+    const historyStr = history.map((h, i) => `${i+1}.\nUser: ${h.role === 'user' ? h.content : ''}\nYou: ${h.role === 'assistant' ? h.content : ''}`).join("\n");
+
+    const prompt = `
+    <START_OF_CONTEXT>
+    ${context}
+    <END_OF_CONTEXT>
+    <START_OF_CONVERSATION_HISTORY>
+    ${historyStr}
+    <END_OF_CONVERSATION_HISTORY>
+    <START_OF_USER_PROMPT>
+    ${query}
+    <END_OF_USER_PROMPT>
+    `;
+
+    const response = await this.ai.models.generateContent({
+      model: model,
+      contents: prompt,
+      config: {
+        systemInstruction: STEVE_SYSTEM_PROMPT,
+        thinkingConfig: { thinkingBudget: 16000 }
       },
     });
     return response.text || "";
