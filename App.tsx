@@ -61,8 +61,6 @@ const App: React.FC = () => {
     geminiRef.current = new GeminiService();
     githubRef.current.setToken(settings.githubToken);
     
-    // Initialize Mermaid
-    // Fix: Access mermaid via window as any to avoid TypeScript error
     if ((window as any).mermaid) {
       (window as any).mermaid.initialize({
         startOnLoad: true,
@@ -78,7 +76,6 @@ const App: React.FC = () => {
     githubRef.current.setToken(settings.githubToken);
   }, [settings]);
 
-  // Auto-scroll chat history
   useEffect(() => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTo({
@@ -88,9 +85,7 @@ const App: React.FC = () => {
     }
   }, [chatHistory, loading]);
 
-  // Handle Mermaid re-renders when diagram code changes
   useEffect(() => {
-    // Fix: Access mermaid via window as any to avoid TypeScript error
     if (isDiagramModalOpen && diagramCode && mermaidRef.current && (window as any).mermaid) {
       mermaidRef.current.removeAttribute('data-processed');
       mermaidRef.current.innerHTML = diagramCode;
@@ -98,7 +93,6 @@ const App: React.FC = () => {
     }
   }, [isDiagramModalOpen, diagramCode]);
 
-  // Derived filtered repository context
   const filteredRepo = useMemo(() => {
     const query = filterQuery.toLowerCase();
     const filteredFiles = repo.files.filter(f => {
@@ -133,80 +127,46 @@ const App: React.FC = () => {
 
   const handleExportWikiMarkdown = () => {
     if (!wiki) return;
-
-    let md = `# ${wiki.title}\n\n`;
-    md += `${wiki.description}\n\n`;
-
+    let md = `# ${wiki.title}\n\n${wiki.description}\n\n`;
     if (wiki.sections && wiki.sections.length > 0) {
       md += `## Table of Contents\n\n`;
       wiki.sections.forEach(sec => {
         md += `### ${sec.title}\n`;
         sec.pages.forEach(pid => {
           const page = wiki.pages.find(p => p.id === pid);
-          if (page) {
-            md += `- [${page.title}](#${page.id})\n`;
-          }
+          if (page) md += `- [${page.title}](#${page.id})\n`;
         });
         md += `\n`;
       });
     }
-
     md += `---\n\n`;
-
     wiki.pages.forEach(page => {
-      md += `<a name="${page.id}"></a>\n`;
-      md += `# ${page.title}\n\n`;
-      md += `**Importance:** ${page.importance.toUpperCase()}\n\n`;
-      md += `**Context Files:**\n${page.relevant_files.map(f => `- \`${f}\``).join('\n')}\n\n`;
-      
-      md += `### Description\n${page.description}\n\n`;
-      
-      if (page.technical_breakdown) {
-        md += `### Technical Breakdown\n${page.technical_breakdown}\n\n`;
-      }
-
+      md += `<a name="${page.id}"></a>\n# ${page.title}\n\n**Importance:** ${page.importance.toUpperCase()}\n\n**Context Files:**\n${page.relevant_files.map(f => `- \`${f}\``).join('\n')}\n\n### Description\n${page.description}\n\n`;
+      if (page.technical_breakdown) md += `### Technical Breakdown\n${page.technical_breakdown}\n\n`;
       if (page.code_samples && page.code_samples.length > 0) {
         md += `### Key Functional Mechanisms\n\n`;
-        page.code_samples.forEach((sample, i) => {
-          md += `\`\`\`typescript\n${sample}\n\`\`\`\n\n`;
-        });
+        page.code_samples.forEach(sample => md += `\`\`\`typescript\n${sample}\n\`\`\`\n\n`);
       }
-
-      if (page.related_pages && page.related_pages.length > 0) {
-        md += `**Related Topics:** ${page.related_pages.join(', ')}\n\n`;
-      }
-
+      if (page.related_pages && page.related_pages.length > 0) md += `**Related Topics:** ${page.related_pages.join(', ')}\n\n`;
       md += `---\n\n`;
     });
-
     const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `${wiki.title.toLowerCase().replace(/\s+/g, '-')}-export.md`;
-    document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
   const handleExportMessageMarkdown = (content: string, idx: number) => {
-    const md = `---
-System: RepoMechanic Analysis
-Timestamp: ${new Date().toLocaleString()}
-Iteration: ${idx}
----
-
-${content}`;
-
+    const md = `---\nSystem: RepoMechanic Analysis\nTimestamp: ${new Date().toLocaleString()}\nIteration: ${idx}\n---\n\n${content}`;
     const blob = new Blob([md], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `RM-Analysis-Message-${idx}.md`;
-    document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
@@ -215,12 +175,11 @@ ${content}`;
     setIsGeneratingDiagram(true);
     setDiagramCode('');
     setIsDiagramModalOpen(true);
-    
     try {
       const code = await geminiRef.current.generateDiagramCode(content, settings.selectedModel);
       setDiagramCode(code);
     } catch (e) {
-      console.error("Failed to generate diagram", e);
+      console.error(e);
       alert("Mechanism error during visual synthesis.");
       setIsDiagramModalOpen(false);
     } finally {
@@ -228,63 +187,114 @@ ${content}`;
     }
   };
 
+  const initiateResearchPipeline = async (query: string) => {
+    if (!geminiRef.current) return;
+    setLoading(true);
+    setResearchIteration(0);
+    
+    let currentFindings = "";
+    const totalSteps = 4;
+
+    try {
+      for (let i = 1; i <= totalSteps; i++) {
+        setResearchIteration(i);
+        const response = await geminiRef.current.deepResearch(
+          filteredRepo, 
+          query, 
+          i, 
+          currentFindings, 
+          settings.selectedModel
+        );
+        
+        currentFindings += `\n\nIteration ${i} Results:\n${response}`;
+        
+        const assistantMsg: ChatMessage = { 
+          role: 'assistant', 
+          content: response, 
+          iteration: i 
+        };
+        
+        setChatHistory(prev => [...prev, assistantMsg]);
+        
+        if (i < totalSteps) await new Promise(r => setTimeout(r, 500));
+      }
+    } catch (e) {
+      console.error(e);
+      setChatHistory(prev => [...prev, { role: 'assistant', content: "Mechanism failure in reasoning engine. Research pipeline terminated." }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleChat = async () => {
+    if (!input.trim() || !geminiRef.current) return;
+    if (filteredRepo.files.length === 0) {
+      alert("No files match the current filter. Context is empty.");
+      return;
+    }
+
+    const currentInput = input;
+    setInput('');
+
+    if (mode === ToolMode.DEEP_RESEARCH) {
+      setChatHistory([{ role: 'user', content: currentInput }]);
+      await initiateResearchPipeline(currentInput);
+      return;
+    }
+
+    const userMsg: ChatMessage = { role: 'user', content: currentInput };
+    setChatHistory(prev => [...prev, userMsg]);
+    setLoading(true);
+
+    try {
+      let response = '';
+      if (mode === ToolMode.RAG_CHAT) {
+        response = await geminiRef.current.ragChat(filteredRepo, currentInput, chatHistory, settings.selectedModel);
+      } else if (mode === ToolMode.SIMPLE_CHAT) {
+        response = await geminiRef.current.simpleChat(filteredRepo, currentInput, settings.selectedModel);
+      }
+      
+      const assistantMsg: ChatMessage = { role: 'assistant', content: response };
+      setChatHistory(prev => [...prev, assistantMsg]);
+    } catch (e) {
+      console.error(e);
+      setChatHistory(prev => [...prev, { role: 'assistant', content: "Mechanism failure in reasoning engine. Connection lost." }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleExportSession = () => {
     const sessionData: SessionData = {
-      version: "1.0.0",
-      timestamp: new Date().toISOString(),
-      mode,
-      repo,
-      wiki,
-      chatHistory,
-      researchIteration,
-      settings
+      version: "1.0.0", timestamp: new Date().toISOString(), mode, repo, wiki, chatHistory, researchIteration, settings
     };
-
     const blob = new Blob([JSON.stringify(sessionData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = `RM-Session-${repo.repoName}-${new Date().toISOString().slice(0,10)}.json`;
-    document.body.appendChild(a);
     a.click();
-    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   };
 
   const handleImportSession = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const data = JSON.parse(event.target?.result as string) as SessionData;
-        
-        // Basic validation
-        if (!data.repo || !data.chatHistory) {
-          throw new Error("Invalid session data format.");
-        }
-
-        setRepo(data.repo);
-        setWiki(data.wiki);
-        setChatHistory(data.chatHistory);
-        setMode(data.mode);
-        setResearchIteration(data.researchIteration || 0);
-        setSettings(data.settings);
-        
-        // Reset secondary UI states
-        setFilterQuery('');
-        setExcludedPaths(new Set());
-        setShowFileList(true);
-        
+        if (!data.repo || !data.chatHistory) throw new Error("Invalid session data format.");
+        setRepo(data.repo); setWiki(data.wiki); setChatHistory(data.chatHistory);
+        setMode(data.mode); setResearchIteration(data.researchIteration || 0); setSettings(data.settings);
+        setFilterQuery(''); setExcludedPaths(new Set()); setShowFileList(true);
         alert(`Session Restored: ${data.repo.repoName}`);
       } catch (err) {
         console.error("Import failed", err);
-        alert("Failed to import session. Ensure the file is a valid RepoMechanic JSON export.");
+        alert("Failed to import session.");
       }
     };
     reader.readAsText(file);
-    // Reset file input
     e.target.value = '';
   };
 
@@ -298,19 +308,13 @@ ${content}`;
   };
 
   const toggleAll = () => {
-    if (excludedPaths.size > 0) {
-      setExcludedPaths(new Set());
-    } else {
-      setExcludedPaths(new Set(repo.files.map(f => f.path)));
-    }
+    if (excludedPaths.size > 0) setExcludedPaths(new Set());
+    else setExcludedPaths(new Set(repo.files.map(f => f.path)));
   };
 
   const handleGenerateWiki = async () => {
     if (!geminiRef.current) return;
-    if (filteredRepo.files.length === 0) {
-      alert("Filter is too restrictive. No files in context.");
-      return;
-    }
+    if (filteredRepo.files.length === 0) { alert("Filter is too restrictive."); return; }
     setLoading(true);
     try {
       const structure = await geminiRef.current.generateWikiStructure(filteredRepo, settings.selectedModel);
@@ -318,41 +322,6 @@ ${content}`;
     } catch (e) {
       console.error(e);
       alert("Mechanism failure during structural mapping.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleChat = async () => {
-    if (!input.trim() || !geminiRef.current) return;
-    if (filteredRepo.files.length === 0) {
-      alert("No files match the current filter. Context is empty.");
-      return;
-    }
-    const userMsg: ChatMessage = { role: 'user', content: input };
-    setChatHistory(prev => [...prev, userMsg]);
-    const currentInput = input;
-    setInput('');
-    setLoading(true);
-
-    try {
-      let response = '';
-      if (mode === ToolMode.RAG_CHAT) {
-        response = await geminiRef.current.ragChat(filteredRepo, currentInput, chatHistory, settings.selectedModel);
-      } else if (mode === ToolMode.SIMPLE_CHAT) {
-        response = await geminiRef.current.simpleChat(filteredRepo, currentInput, settings.selectedModel);
-      } else if (mode === ToolMode.DEEP_RESEARCH) {
-        const currentIter = researchIteration + 1;
-        setResearchIteration(currentIter);
-        const prevFindings = chatHistory.filter(c => c.role === 'assistant').map(c => c.content).join("\n\n");
-        response = await geminiRef.current.deepResearch(filteredRepo, currentInput, currentIter, prevFindings, settings.selectedModel);
-      }
-      
-      const assistantMsg: ChatMessage = { role: 'assistant', content: response, iteration: researchIteration + 1 };
-      setChatHistory(prev => [...prev, assistantMsg]);
-    } catch (e) {
-      console.error(e);
-      setChatHistory(prev => [...prev, { role: 'assistant', content: "Mechanism failure in reasoning engine. Connection lost." }]);
     } finally {
       setLoading(false);
     }
@@ -367,11 +336,7 @@ ${content}`;
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const recorder = new MediaRecorder(stream);
         audioChunksRef.current = [];
-        
-        recorder.ondataavailable = (e) => {
-          if (e.data.size > 0) audioChunksRef.current.push(e.data);
-        };
-        
+        recorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
         recorder.onstop = async () => {
           const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
           if (geminiRef.current) {
@@ -381,7 +346,6 @@ ${content}`;
             setLoading(false);
           }
         };
-
         recorder.start();
         mediaRecorderRef.current = recorder;
         setIsRecording(true);
@@ -392,16 +356,11 @@ ${content}`;
   };
 
   const isChatView = mode === ToolMode.RAG_CHAT || mode === ToolMode.SIMPLE_CHAT || mode === ToolMode.DEEP_RESEARCH;
+  const deepResearchPhases = ["PLANNING", "STRUCTURAL_MAPPING", "INTERACTION_ANALYSIS", "FINAL_SYNTHESIS"];
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 font-sans overflow-hidden">
-      <input 
-        type="file" 
-        ref={fileInputRef} 
-        onChange={handleImportSession} 
-        className="hidden" 
-        accept=".json"
-      />
+      <input type="file" ref={fileInputRef} onChange={handleImportSession} className="hidden" accept=".json" />
 
       {/* Diagram Modal */}
       {isDiagramModalOpen && (
@@ -424,9 +383,7 @@ ${content}`;
                         const blob = new Blob([diagramCode], { type: 'text/plain' });
                         const url = URL.createObjectURL(blob);
                         const a = document.createElement('a');
-                        a.href = url;
-                        a.download = 'mechanism-diagram.mermaid';
-                        a.click();
+                        a.href = url; a.download = 'mechanism-diagram.mermaid'; a.click();
                       }}
                       className="text-[10px] font-bold text-zinc-400 hover:text-white flex items-center gap-2 bg-zinc-800 px-4 py-2 rounded-xl border border-zinc-700 transition-colors"
                     >
@@ -447,16 +404,9 @@ ${content}`;
                   </div>
                 ) : (
                   <div className="w-full h-full overflow-auto flex items-center justify-center custom-scrollbar">
-                    <div ref={mermaidRef} className="mermaid flex justify-center w-full">
-                       {/* Mermaid SVG renders here */}
-                    </div>
+                    <div ref={mermaidRef} className="mermaid flex justify-center w-full"></div>
                   </div>
                 )}
-              </div>
-              
-              <div className="flex-shrink-0 flex justify-between items-center text-[10px] font-mono text-zinc-600 border-t border-zinc-800 pt-6 px-2">
-                 <span>ENGINE::MERMAID_JS_V10</span>
-                 <span>READY_STATE::RENDERED</span>
               </div>
            </div>
         </div>
@@ -475,17 +425,13 @@ ${content}`;
                 <i className="fa-solid fa-xmark text-lg"></i>
               </button>
             </div>
-
             <div className="space-y-6">
               <div>
                 <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-4">Inference Engine</label>
                 <div className="space-y-3">
                   {MODELS.map(m => (
-                    <div 
-                      key={m.id}
-                      onClick={() => setSettings(prev => ({ ...prev, selectedModel: m.id }))}
-                      className={`p-4 rounded-xl border cursor-pointer transition-all ${settings.selectedModel === m.id ? 'bg-zinc-100 border-white' : 'bg-zinc-950/50 border-zinc-800 hover:border-zinc-700'}`}
-                    >
+                    <div key={m.id} onClick={() => setSettings(prev => ({ ...prev, selectedModel: m.id }))}
+                      className={`p-4 rounded-xl border cursor-pointer transition-all ${settings.selectedModel === m.id ? 'bg-zinc-100 border-white' : 'bg-zinc-950/50 border-zinc-800 hover:border-zinc-700'}`}>
                       <div className="flex justify-between items-center mb-1">
                         <span className={`text-sm font-bold ${settings.selectedModel === m.id ? 'text-zinc-950' : 'text-zinc-100'}`}>{m.name}</span>
                         {settings.selectedModel === m.id && <i className="fa-solid fa-circle-check text-zinc-950"></i>}
@@ -495,31 +441,16 @@ ${content}`;
                   ))}
                 </div>
               </div>
-
               <div>
                 <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest block mb-2">GitHub Authorization</label>
                 <div className="relative">
                   <i className="fa-solid fa-key absolute left-4 top-1/2 -translate-y-1/2 text-zinc-700 text-xs"></i>
-                  <input 
-                    type="password"
-                    value={settings.githubToken}
-                    onChange={(e) => setSettings(prev => ({ ...prev, githubToken: e.target.value }))}
-                    placeholder="ghp_xxxxxxxxxxxx"
-                    className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-zinc-500 font-mono transition-colors"
-                  />
+                  <input type="password" value={settings.githubToken} onChange={(e) => setSettings(prev => ({ ...prev, githubToken: e.target.value }))}
+                    placeholder="ghp_xxxxxxxxxxxx" className="w-full bg-zinc-950 border border-zinc-800 rounded-xl pl-10 pr-4 py-3 text-sm focus:outline-none focus:border-zinc-500 font-mono transition-colors" />
                 </div>
-                <p className="text-[9px] text-zinc-600 mt-2 leading-relaxed">
-                  Recommended for private repositories and higher rate limits (5,000 requests/hr). Your token is stored locally.
-                </p>
               </div>
             </div>
-
-            <button 
-              onClick={() => setShowSettings(false)}
-              className="w-full bg-zinc-100 text-zinc-950 py-3 rounded-xl font-bold text-sm hover:bg-white transition-colors"
-            >
-              APPLY SETTINGS
-            </button>
+            <button onClick={() => setShowSettings(false)} className="w-full bg-zinc-100 text-zinc-950 py-3 rounded-xl font-bold text-sm hover:bg-white transition-colors">APPLY SETTINGS</button>
           </div>
         </div>
       )}
@@ -534,59 +465,32 @@ ${content}`;
             </h1>
             <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold mt-1">Structural Analysis System</p>
           </div>
-          <button 
-            onClick={() => setShowSettings(true)}
-            className="w-9 h-9 flex items-center justify-center rounded-lg border border-zinc-800 hover:bg-zinc-800 transition-colors text-zinc-500 hover:text-white"
-          >
+          <button onClick={() => setShowSettings(true)} className="w-9 h-9 flex items-center justify-center rounded-lg border border-zinc-800 hover:bg-zinc-800 transition-colors text-zinc-500 hover:text-white">
             <i className="fa-solid fa-gear"></i>
           </button>
         </div>
 
-        <div className="px-4 space-y-3">
+        <div className="px-4 space-y-3 pb-6">
           <div className="bg-zinc-950/50 rounded-xl border border-zinc-800 p-3">
              <label className="text-[10px] font-bold text-zinc-500 uppercase mb-2 block tracking-wider">Source Repository</label>
              <div className="flex flex-col gap-2">
-               <input 
-                 type="text" 
-                 value={repoUrlInput}
-                 onChange={(e) => setRepoUrlInput(e.target.value)}
-                 onKeyDown={(e) => e.key === 'Enter' && handleLoadRepo()}
-                 placeholder="GitHub URL..."
-                 className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-zinc-500 transition-colors placeholder:text-zinc-700"
-               />
-               <button 
-                 onClick={handleLoadRepo}
-                 disabled={isFetchingRepo || !repoUrlInput.trim()}
-                 className="bg-zinc-100 text-zinc-950 py-2 rounded-lg text-xs font-bold hover:bg-white transition-all disabled:opacity-30 shadow-md active:scale-[0.98]"
-               >
+               <input type="text" value={repoUrlInput} onChange={(e) => setRepoUrlInput(e.target.value)}
+                 onKeyDown={(e) => e.key === 'Enter' && handleLoadRepo()} placeholder="GitHub URL..."
+                 className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-zinc-500 transition-colors placeholder:text-zinc-700" />
+               <button onClick={handleLoadRepo} disabled={isFetchingRepo || !repoUrlInput.trim()}
+                 className="bg-zinc-100 text-zinc-950 py-2 rounded-lg text-xs font-bold hover:bg-white transition-all disabled:opacity-30 shadow-md active:scale-[0.98]">
                  {isFetchingRepo ? <i className="fa-solid fa-spinner fa-spin"></i> : "SYNCHRONIZE"}
                </button>
-             </div>
-             <div className="flex items-center justify-between mt-2">
-               <p className="text-[8px] text-zinc-600 leading-tight">
-                 Branch hint: <code>.../tree/main</code>
-               </p>
-               {settings.githubToken && (
-                 <span className="text-[8px] font-black text-emerald-500 uppercase tracking-tighter flex items-center gap-1">
-                   <i className="fa-solid fa-shield-halved text-[7px]"></i> Authenticated
-                 </span>
-               )}
              </div>
           </div>
 
           <div className="bg-zinc-950/50 rounded-xl border border-zinc-800 p-3">
             <label className="text-[10px] font-bold text-zinc-500 uppercase mb-2 block tracking-wider">Session Archives</label>
             <div className="grid grid-cols-2 gap-2">
-              <button 
-                onClick={handleExportSession}
-                className="bg-zinc-900 border border-zinc-800 py-1.5 rounded text-[10px] font-bold text-zinc-400 hover:bg-zinc-800 hover:text-white transition-all flex items-center justify-center gap-1.5"
-              >
+              <button onClick={handleExportSession} className="bg-zinc-900 border border-zinc-800 py-1.5 rounded text-[10px] font-bold text-zinc-400 hover:bg-zinc-800 hover:text-white transition-all flex items-center justify-center gap-1.5">
                 <i className="fa-solid fa-download"></i> EXPORT
               </button>
-              <button 
-                onClick={() => fileInputRef.current?.click()}
-                className="bg-zinc-900 border border-zinc-800 py-1.5 rounded text-[10px] font-bold text-zinc-400 hover:bg-zinc-800 hover:text-white transition-all flex items-center justify-center gap-1.5"
-              >
+              <button onClick={() => fileInputRef.current?.click()} className="bg-zinc-900 border border-zinc-800 py-1.5 rounded text-[10px] font-bold text-zinc-400 hover:bg-zinc-800 hover:text-white transition-all flex items-center justify-center gap-1.5">
                 <i className="fa-solid fa-upload"></i> IMPORT
               </button>
             </div>
@@ -595,47 +499,30 @@ ${content}`;
           <div className="bg-zinc-950/50 rounded-xl border border-zinc-800 p-3">
              <div className="flex justify-between items-center mb-2">
                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Context Management</label>
-               <button 
-                onClick={() => setShowFileList(!showFileList)}
-                className="text-[9px] font-bold text-zinc-400 hover:text-zinc-200 uppercase"
-               >
+               <button onClick={() => setShowFileList(!showFileList)} className="text-[9px] font-bold text-zinc-400 hover:text-zinc-200 uppercase">
                  {showFileList ? 'Hide Files' : 'Show Files'}
                </button>
              </div>
              
              <div className="relative mb-2">
                 <i className="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-[10px] text-zinc-700"></i>
-                <input 
-                  type="text" 
-                  value={filterQuery}
-                  onChange={(e) => setFilterQuery(e.target.value)}
-                  placeholder="Filter paths..."
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-8 pr-3 py-2 text-xs focus:outline-none focus:border-zinc-500 transition-colors placeholder:text-zinc-700 font-mono"
-                />
+                <input type="text" value={filterQuery} onChange={(e) => setFilterQuery(e.target.value)} placeholder="Filter paths..."
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-8 pr-3 py-2 text-xs focus:outline-none focus:border-zinc-500 transition-colors placeholder:text-zinc-700 font-mono" />
              </div>
 
              {showFileList && (
                <div className="mt-3 border-t border-zinc-800 pt-3 animate-in fade-in slide-in-from-top-1 duration-300">
                   <div className="flex justify-between items-center mb-2 px-1">
                     <span className="text-[9px] font-mono text-emerald-500 font-bold">{filteredRepo.files.length}/{repo.files.length} ACTIVE</span>
-                    <button 
-                      onClick={toggleAll}
-                      className="text-[9px] font-bold text-zinc-600 hover:text-zinc-400 uppercase tracking-tighter"
-                    >
-                      Toggle All
-                    </button>
+                    <button onClick={toggleAll} className="text-[9px] font-bold text-zinc-600 hover:text-zinc-400 uppercase tracking-tighter">Toggle All</button>
                   </div>
                   <div className="max-h-60 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
                     {repo.files.map(file => {
                       const isFilteredOut = filterQuery && !file.path.toLowerCase().includes(filterQuery.toLowerCase());
                       const isExcluded = excludedPaths.has(file.path);
-                      
                       return (
-                        <div 
-                          key={file.path} 
-                          className={`flex items-center gap-2 px-2 py-1.5 rounded group transition-colors cursor-pointer ${isFilteredOut ? 'opacity-30' : 'hover:bg-zinc-800/50'}`}
-                          onClick={() => togglePath(file.path)}
-                        >
+                        <div key={file.path} onClick={() => togglePath(file.path)}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded group transition-colors cursor-pointer ${isFilteredOut ? 'opacity-30' : 'hover:bg-zinc-800/50'}`}>
                           <div className={`w-3.5 h-3.5 rounded flex items-center justify-center border transition-all ${!isExcluded && !isFilteredOut ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400' : 'border-zinc-800 text-transparent'}`}>
                              <i className="fa-solid fa-check text-[8px]"></i>
                           </div>
@@ -651,57 +538,25 @@ ${content}`;
           </div>
         </div>
 
-        <nav className="flex-1 px-3 space-y-1 mt-4 overflow-y-auto scrollbar-hide">
+        <nav className="flex-1 px-3 space-y-1 mt-2 overflow-y-auto scrollbar-hide border-t border-zinc-800 pt-4">
           <div className="text-[10px] font-bold text-zinc-600 uppercase px-4 py-2 tracking-tighter opacity-50">Operational Modes</div>
-          <button 
-            onClick={() => setMode(ToolMode.WIKI_GEN)}
-            className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${mode === ToolMode.WIKI_GEN ? 'bg-zinc-800 text-zinc-100 shadow-lg border border-zinc-700' : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300'}`}
-          >
-            <i className="fa-solid fa-map text-sm"></i>
-            <span className="text-sm font-medium">Wiki Generator</span>
-          </button>
-          <button 
-            onClick={() => setMode(ToolMode.RAG_CHAT)}
-            className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${mode === ToolMode.RAG_CHAT ? 'bg-zinc-800 text-zinc-100 shadow-lg border border-zinc-700' : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300'}`}
-          >
-            <i className="fa-solid fa-brain text-sm"></i>
-            <span className="text-sm font-medium">RAG Assistant</span>
-          </button>
-          <button 
-            onClick={() => { setMode(ToolMode.DEEP_RESEARCH); setChatHistory([]); setResearchIteration(0); }}
-            className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${mode === ToolMode.DEEP_RESEARCH ? 'bg-zinc-800 text-zinc-100 shadow-lg border border-zinc-700' : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300'}`}
-          >
-            <i className="fa-solid fa-microscope text-sm"></i>
-            <span className="text-sm font-medium">Deep Research</span>
-          </button>
-          <button 
-            onClick={() => setMode(ToolMode.SIMPLE_CHAT)}
-            className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${mode === ToolMode.SIMPLE_CHAT ? 'bg-zinc-800 text-zinc-100 shadow-lg border border-zinc-700' : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300'}`}
-          >
-            <i className="fa-solid fa-comments text-sm"></i>
-            <span className="text-sm font-medium">Simple Chat</span>
-          </button>
+          {[
+            { id: ToolMode.WIKI_GEN, icon: 'fa-map', label: 'Wiki Generator' },
+            { id: ToolMode.RAG_CHAT, icon: 'fa-brain', label: 'RAG Assistant' },
+            { id: ToolMode.DEEP_RESEARCH, icon: 'fa-microscope', label: 'Deep Research' },
+            { id: ToolMode.SIMPLE_CHAT, icon: 'fa-comments', label: 'Simple Chat' },
+          ].map(m => (
+            <button key={m.id} onClick={() => { setMode(m.id); setChatHistory([]); setResearchIteration(0); }}
+              className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${mode === m.id ? 'bg-zinc-800 text-zinc-100 shadow-lg border border-zinc-700' : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300'}`}>
+              <i className={`fa-solid ${m.icon} text-sm`}></i>
+              <span className="text-sm font-medium">{m.label}</span>
+            </button>
+          ))}
         </nav>
-
-        <div className="p-4 border-t border-zinc-800">
-          <div className="bg-zinc-800/30 rounded-lg p-3 border border-zinc-800/50">
-            <p className="text-[10px] font-bold text-zinc-500 uppercase mb-2">Active Context</p>
-            <div className="space-y-1">
-               <div className="text-xs font-bold truncate text-zinc-200">{repo.repoName}</div>
-               <div className="flex items-center gap-2">
-                 <div className={`h-1.5 w-1.5 rounded-full ${filteredRepo.files.length < repo.files.length ? 'bg-emerald-500' : 'bg-zinc-600'}`}></div>
-                 <div className="text-[10px] text-zinc-500 truncate font-mono">
-                    {filteredRepo.files.length} active files {filteredRepo.files.length < repo.files.length && '(restricted)'}
-                 </div>
-               </div>
-            </div>
-          </div>
-        </div>
       </aside>
 
       {/* Main Content */}
       <main className="flex-1 flex flex-col bg-zinc-950 overflow-hidden relative">
-        {/* Header */}
         <header className="h-16 border-b border-zinc-800 flex items-center justify-between px-8 bg-zinc-950/80 backdrop-blur-md z-10">
           <div className="flex items-center gap-3">
             <span className="text-xs font-mono text-zinc-600 uppercase tracking-widest">system:</span>
@@ -715,11 +570,7 @@ ${content}`;
           </div>
         </header>
 
-        {/* Scrollable Viewport */}
-        <div 
-          ref={scrollContainerRef}
-          className="flex-1 overflow-y-auto p-8"
-        >
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-8">
           <div className="max-w-4xl mx-auto w-full">
             {mode === ToolMode.WIKI_GEN && (
               <div className="space-y-6">
@@ -727,39 +578,18 @@ ${content}`;
                   <div>
                     <h2 className="text-2xl font-bold">Structural Mapping Engine</h2>
                     <p className="text-zinc-500 mt-1 text-sm">Synthesize a comprehensive architectural guide for {repo.repoName}.</p>
-                    {(filterQuery || excludedPaths.size > 0) && (
-                      <div className="inline-flex items-center gap-2 mt-2 px-2 py-1 bg-zinc-900 border border-zinc-800 rounded text-[10px] font-mono text-zinc-500 uppercase">
-                        <i className="fa-solid fa-filter text-[8px]"></i> Manual Overrides Active: {filteredRepo.files.length} Files Selected
-                      </div>
-                    )}
                   </div>
                   <div className="flex gap-3">
                     {wiki && (
-                      <button 
-                        onClick={handleExportWikiMarkdown}
-                        className="bg-zinc-900 border border-zinc-800 text-zinc-400 px-6 py-3 rounded-xl font-bold text-sm hover:text-white hover:bg-zinc-800 transition-all flex items-center gap-2"
-                      >
+                      <button onClick={handleExportWikiMarkdown} className="bg-zinc-900 border border-zinc-800 text-zinc-400 px-6 py-3 rounded-xl font-bold text-sm hover:text-white hover:bg-zinc-800 transition-all flex items-center gap-2">
                         <i className="fa-solid fa-file-export"></i> EXPORT AS MD
                       </button>
                     )}
-                    <button 
-                      onClick={handleGenerateWiki}
-                      disabled={loading}
-                      className="bg-zinc-100 text-zinc-950 px-8 py-3 rounded-xl font-bold text-sm hover:bg-white transition-all disabled:opacity-50 shadow-xl flex-shrink-0"
-                    >
+                    <button onClick={handleGenerateWiki} disabled={loading} className="bg-zinc-100 text-zinc-950 px-8 py-3 rounded-xl font-bold text-sm hover:bg-white transition-all disabled:opacity-50 shadow-xl flex-shrink-0">
                       MAP MECHANISMS
                     </button>
                   </div>
                 </div>
-
-                {!wiki && !loading && (
-                  <div className="bg-zinc-900/20 border-2 border-dashed border-zinc-800 rounded-3xl h-80 flex flex-col items-center justify-center text-zinc-600">
-                    <div className="bg-zinc-900 p-6 rounded-full mb-4 border border-zinc-800">
-                      <i className="fa-solid fa-diagram-project text-4xl"></i>
-                    </div>
-                    <p className="text-sm font-medium tracking-tight">Interrogation pending. Initiate analysis to visualize repository hierarchy.</p>
-                  </div>
-                )}
 
                 {wiki && (
                   <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -767,33 +597,7 @@ ${content}`;
                       <h3 className="text-5xl font-black tracking-tighter text-white mb-4">{wiki.title}</h3>
                       <p className="text-xl text-zinc-400 max-w-3xl leading-relaxed">{wiki.description}</p>
                     </div>
-
-                    {wiki.sections && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-16">
-                        {wiki.sections.map(sec => (
-                          <div key={sec.id} className="bg-zinc-900/40 border border-zinc-800/80 p-8 rounded-2xl hover:bg-zinc-900/60 transition-colors">
-                            <h4 className="font-black text-xs uppercase tracking-[0.2em] text-zinc-500 mb-6 flex items-center gap-3">
-                               <span className="w-4 h-[1px] bg-zinc-700"></span>
-                               {sec.title}
-                            </h4>
-                            <div className="space-y-3">
-                              {sec.pages.map(pid => {
-                                const page = wiki.pages.find(p => p.id === pid);
-                                return (
-                                  <div key={pid} className="text-sm font-medium text-zinc-300 hover:text-white cursor-pointer flex items-center justify-between group border-b border-zinc-800/50 pb-2">
-                                    <span>{page?.title || pid}</span>
-                                    <i className="fa-solid fa-arrow-right text-[10px] opacity-0 group-hover:opacity-100 -translate-x-2 group-hover:translate-x-0 transition-all"></i>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
                     <div className="space-y-12">
-                      <h4 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-600 text-center border-b border-zinc-900 pb-4">Logic Entity Breakdown</h4>
                       {wiki.pages.map(page => (
                         <div key={page.id} className="group relative border-l border-zinc-800 hover:border-zinc-600 pl-10 py-6 transition-colors">
                           <div className="absolute left-0 top-10 w-4 h-[1px] bg-zinc-800 group-hover:bg-zinc-600 transition-colors"></div>
@@ -804,14 +608,12 @@ ${content}`;
                              </span>
                           </div>
                           <p className="text-zinc-400 mb-6 max-w-4xl text-base leading-relaxed font-medium">{page.description}</p>
-                          
                           {page.technical_breakdown && (
                             <div className="mb-6 bg-zinc-900/60 border border-zinc-800/50 p-6 rounded-xl">
                               <h6 className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">Technical Breakdown</h6>
                               <p className="text-zinc-300 text-sm leading-relaxed">{page.technical_breakdown}</p>
                             </div>
                           )}
-
                           {page.code_samples && page.code_samples.length > 0 && (
                             <div className="mb-6">
                               <h6 className="text-[10px] font-black uppercase tracking-widest text-zinc-500 mb-3">Key Functional Mechanisms</h6>
@@ -824,15 +626,6 @@ ${content}`;
                               </div>
                             </div>
                           )}
-
-                          <div className="flex flex-wrap gap-8 text-[11px] font-mono">
-                            <div className="bg-zinc-900/50 p-3 rounded-lg border border-zinc-800 w-full">
-                              <span className="text-zinc-600 block mb-2 font-black uppercase tracking-tighter">Relevant Context Paths</span>
-                              <div className="flex flex-wrap gap-2">
-                                {page.relevant_files.map(f => <span key={f} className="text-zinc-400 bg-zinc-950 px-2 py-1 rounded border border-zinc-800/50">{f}</span>)}
-                              </div>
-                            </div>
-                          </div>
                         </div>
                       ))}
                     </div>
@@ -847,9 +640,6 @@ ${content}`;
                   <div className="flex flex-col items-center justify-center py-20 text-zinc-700 animate-in fade-in duration-1000">
                     <i className="fa-solid fa-terminal text-5xl mb-6 opacity-20"></i>
                     <p className="text-sm font-mono tracking-widest uppercase text-center">Awaiting structural interrogation parameters...</p>
-                    {(filterQuery || excludedPaths.size > 0) && (
-                      <p className="text-[10px] text-zinc-600 font-mono mt-2">Active Context restricted to {filteredRepo.files.length} specific files.</p>
-                    )}
                   </div>
                 )}
                 {chatHistory.map((msg, idx) => (
@@ -858,29 +648,19 @@ ${content}`;
                       {msg.role === 'user' ? 'USR' : 'SYS'}
                     </div>
                     <div className="flex-1 min-w-0 relative">
-                      {/* Action Bar for Assistant Messages */}
                       {msg.role === 'assistant' && (
                         <div className="absolute top-0 right-0 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button 
-                            onClick={() => handleGenerateDiagram(msg.content)}
-                            title="Generate Diagram"
-                            className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-all text-zinc-500 flex items-center justify-center"
-                          >
+                          <button onClick={() => handleGenerateDiagram(msg.content)} title="Generate Diagram" className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-all text-zinc-500 flex items-center justify-center">
                             <i className="fa-solid fa-project-diagram text-[10px]"></i>
                           </button>
-                          <button 
-                            onClick={() => handleExportMessageMarkdown(msg.content, idx)}
-                            title="Export to Markdown"
-                            className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-all text-zinc-500 flex items-center justify-center"
-                          >
+                          <button onClick={() => handleExportMessageMarkdown(msg.content, idx)} title="Export to Markdown" className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-all text-zinc-500 flex items-center justify-center">
                             <i className="fa-solid fa-file-export text-[10px]"></i>
                           </button>
                         </div>
                       )}
-
                       {msg.iteration && (
                         <div className="text-[9px] font-black text-emerald-500/60 uppercase tracking-[0.4em] mb-4 flex items-center gap-3">
-                           ITERATION_LOG::{msg.iteration.toString().padStart(2, '0')}
+                           PHASE_0{msg.iteration}::{deepResearchPhases[msg.iteration - 1]}
                            <span className="h-[1px] bg-emerald-900/30 flex-1"></span>
                         </div>
                       )}
@@ -888,7 +668,7 @@ ${content}`;
                     </div>
                   </div>
                 ))}
-                {loading && (
+                {loading && mode !== ToolMode.DEEP_RESEARCH && (
                   <div className="flex gap-6 animate-pulse bg-zinc-900/20 -mx-6 px-6 py-10 rounded-3xl border border-zinc-800/50 shadow-inner">
                     <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center flex-shrink-0">
                       <div className="w-2 h-2 bg-zinc-600 rounded-full animate-bounce"></div>
@@ -904,43 +684,24 @@ ${content}`;
           </div>
         </div>
 
-        {/* Static Input Footer - Made Opaque to prevent bleed-through */}
         {isChatView && (
           <div className="bg-zinc-950 border-t border-zinc-800 px-8 py-6 z-20">
             <div className="max-w-4xl mx-auto space-y-4">
               <div className="bg-zinc-900 border border-zinc-800 p-2 rounded-[1.5rem] shadow-2xl flex gap-3 items-end ring-1 ring-zinc-800">
-                <button 
-                  onClick={toggleRecording}
-                  className={`p-3.5 rounded-xl transition-all flex items-center justify-center flex-shrink-0 ${isRecording ? 'bg-red-900/30 text-red-400 ring-1 ring-red-900/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'hover:bg-zinc-800 text-zinc-500'}`}
-                >
+                <button onClick={toggleRecording} className={`p-3.5 rounded-xl transition-all flex items-center justify-center flex-shrink-0 ${isRecording ? 'bg-red-900/30 text-red-400 ring-1 ring-red-900/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'hover:bg-zinc-800 text-zinc-500'}`}>
                   <i className={`fa-solid ${isRecording ? 'fa-stop' : 'fa-microphone'} text-sm`}></i>
                 </button>
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleChat();
-                    }
-                  }}
-                  placeholder={mode === ToolMode.DEEP_RESEARCH ? "Enter research objective..." : "Structural interrogation..."}
-                  className="flex-1 bg-transparent border-none focus:ring-0 p-3.5 text-sm text-zinc-100 min-h-[52px] max-h-48 resize-none scrollbar-hide font-medium"
-                  rows={1}
-                />
-                <button 
-                  onClick={handleChat}
-                  disabled={loading || !input.trim()}
-                  className="bg-zinc-100 text-zinc-950 h-12 w-12 rounded-xl font-black hover:bg-white transition-all disabled:opacity-10 flex items-center justify-center shadow-lg active:scale-95 flex-shrink-0"
-                >
+                <textarea value={input} onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChat(); } }}
+                  placeholder={mode === ToolMode.DEEP_RESEARCH ? "Define research objective..." : "Structural interrogation..."}
+                  className="flex-1 bg-transparent border-none focus:ring-0 p-3.5 text-sm text-zinc-100 min-h-[52px] max-h-48 resize-none scrollbar-hide font-medium" rows={1} />
+                <button onClick={handleChat} disabled={loading || !input.trim()}
+                  className="bg-zinc-100 text-zinc-950 h-12 w-12 rounded-xl font-black hover:bg-white transition-all disabled:opacity-10 flex items-center justify-center shadow-lg active:scale-95 flex-shrink-0">
                   <i className="fa-solid fa-chevron-up"></i>
                 </button>
               </div>
-              
               <div className="flex justify-between items-center px-4">
-                <p className="text-[9px] text-zinc-600 font-black uppercase tracking-[0.2em]">
-                  Context: {repo.repoName} • {filteredRepo.files.length} active Files { (filterQuery || excludedPaths.size > 0) && `(Restricted)`}
-                </p>
+                <p className="text-[9px] text-zinc-600 font-black uppercase tracking-[0.2em]">Context: {repo.repoName} • {filteredRepo.files.length} active Files</p>
                 {mode === ToolMode.DEEP_RESEARCH && (
                   <div className="flex items-center gap-2">
                      <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Synthesis Phase</span>
