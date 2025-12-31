@@ -104,6 +104,65 @@ const App: React.FC = () => {
     }
   };
 
+  const handleExportWikiMarkdown = () => {
+    if (!wiki) return;
+
+    let md = `# ${wiki.title}\n\n`;
+    md += `${wiki.description}\n\n`;
+
+    if (wiki.sections && wiki.sections.length > 0) {
+      md += `## Table of Contents\n\n`;
+      wiki.sections.forEach(sec => {
+        md += `### ${sec.title}\n`;
+        sec.pages.forEach(pid => {
+          const page = wiki.pages.find(p => p.id === pid);
+          if (page) {
+            md += `- [${page.title}](#${page.id})\n`;
+          }
+        });
+        md += `\n`;
+      });
+    }
+
+    md += `---\n\n`;
+
+    wiki.pages.forEach(page => {
+      md += `<a name="${page.id}"></a>\n`;
+      md += `# ${page.title}\n\n`;
+      md += `**Importance:** ${page.importance.toUpperCase()}\n\n`;
+      md += `**Context Files:**\n${page.relevant_files.map(f => `- \`${f}\``).join('\n')}\n\n`;
+      
+      md += `### Description\n${page.description}\n\n`;
+      
+      if (page.technical_breakdown) {
+        md += `### Technical Breakdown\n${page.technical_breakdown}\n\n`;
+      }
+
+      if (page.code_samples && page.code_samples.length > 0) {
+        md += `### Key Functional Mechanisms\n\n`;
+        page.code_samples.forEach((sample, i) => {
+          md += `\`\`\`typescript\n${sample}\n\`\`\`\n\n`;
+        });
+      }
+
+      if (page.related_pages && page.related_pages.length > 0) {
+        md += `**Related Topics:** ${page.related_pages.join(', ')}\n\n`;
+      }
+
+      md += `---\n\n`;
+    });
+
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${wiki.title.toLowerCase().replace(/\s+/g, '-')}-export.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   const handleExportSession = () => {
     const sessionData: SessionData = {
       version: "1.0.0",
@@ -550,13 +609,23 @@ const App: React.FC = () => {
                       </div>
                     )}
                   </div>
-                  <button 
-                    onClick={handleGenerateWiki}
-                    disabled={loading}
-                    className="bg-zinc-100 text-zinc-950 px-8 py-3 rounded-xl font-bold text-sm hover:bg-white transition-all disabled:opacity-50 shadow-xl flex-shrink-0"
-                  >
-                    MAP MECHANISMS
-                  </button>
+                  <div className="flex gap-3">
+                    {wiki && (
+                      <button 
+                        onClick={handleExportWikiMarkdown}
+                        className="bg-zinc-900 border border-zinc-800 text-zinc-400 px-6 py-3 rounded-xl font-bold text-sm hover:text-white hover:bg-zinc-800 transition-all flex items-center gap-2"
+                      >
+                        <i className="fa-solid fa-file-export"></i> EXPORT AS MD
+                      </button>
+                    )}
+                    <button 
+                      onClick={handleGenerateWiki}
+                      disabled={loading}
+                      className="bg-zinc-100 text-zinc-950 px-8 py-3 rounded-xl font-bold text-sm hover:bg-white transition-all disabled:opacity-50 shadow-xl flex-shrink-0"
+                    >
+                      MAP MECHANISMS
+                    </button>
+                  </div>
                 </div>
 
                 {!wiki && !loading && (
