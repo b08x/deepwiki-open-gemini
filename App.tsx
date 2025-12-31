@@ -30,6 +30,7 @@ const App: React.FC = () => {
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isResearching, setIsResearching] = useState(false);
   const [isFetchingRepo, setIsFetchingRepo] = useState(false);
   const [researchIteration, setResearchIteration] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
@@ -83,7 +84,7 @@ const App: React.FC = () => {
         behavior: 'smooth'
       });
     }
-  }, [chatHistory, loading]);
+  }, [chatHistory, loading, isResearching]);
 
   useEffect(() => {
     if (isDiagramModalOpen && diagramCode && mermaidRef.current && (window as any).mermaid) {
@@ -159,6 +160,24 @@ const App: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const handleExportFullResearch = () => {
+    if (chatHistory.length === 0) return;
+    const repoInfo = `### Repository: ${repo.repoName}\n### URL: ${repo.repoUrl}\n---\n\n`;
+    const report = chatHistory.map((msg, i) => {
+      const header = msg.role === 'user' ? '## Research Objective' : `## Phase ${msg.iteration}: ${deepResearchPhases[(msg.iteration || 1) - 1]}`;
+      return `${header}\n\n${msg.content}\n\n---\n`;
+    }).join('\n');
+    
+    const md = `# Deep Research Report\n\n${repoInfo}${report}`;
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `RM-DeepResearch-${repo.repoName}-${new Date().toISOString().slice(0,10)}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const handleExportMessageMarkdown = (content: string, idx: number) => {
     const md = `---\nSystem: RepoMechanic Analysis\nTimestamp: ${new Date().toLocaleString()}\nIteration: ${idx}\n---\n\n${content}`;
     const blob = new Blob([md], { type: 'text/markdown' });
@@ -189,6 +208,7 @@ const App: React.FC = () => {
 
   const initiateResearchPipeline = async (query: string) => {
     if (!geminiRef.current) return;
+    setIsResearching(true);
     setLoading(true);
     setResearchIteration(0);
     
@@ -216,18 +236,19 @@ const App: React.FC = () => {
         
         setChatHistory(prev => [...prev, assistantMsg]);
         
-        if (i < totalSteps) await new Promise(r => setTimeout(r, 500));
+        if (i < totalSteps) await new Promise(r => setTimeout(r, 800));
       }
     } catch (e) {
       console.error(e);
       setChatHistory(prev => [...prev, { role: 'assistant', content: "Mechanism failure in reasoning engine. Research pipeline terminated." }]);
     } finally {
+      setIsResearching(false);
       setLoading(false);
     }
   };
 
   const handleChat = async () => {
-    if (!input.trim() || !geminiRef.current) return;
+    if (!input.trim() || !geminiRef.current || isResearching || loading) return;
     if (filteredRepo.files.length === 0) {
       alert("No files match the current filter. Context is empty.");
       return;
@@ -328,6 +349,7 @@ const App: React.FC = () => {
   };
 
   const toggleRecording = async () => {
+    if (isResearching || loading) return;
     if (isRecording) {
       mediaRecorderRef.current?.stop();
       setIsRecording(false);
@@ -547,7 +569,8 @@ const App: React.FC = () => {
             { id: ToolMode.SIMPLE_CHAT, icon: 'fa-comments', label: 'Simple Chat' },
           ].map(m => (
             <button key={m.id} onClick={() => { setMode(m.id); setChatHistory([]); setResearchIteration(0); }}
-              className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${mode === m.id ? 'bg-zinc-800 text-zinc-100 shadow-lg border border-zinc-700' : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300'}`}>
+              className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${mode === m.id ? 'bg-zinc-800 text-zinc-100 shadow-lg border border-zinc-700' : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300'}`}
+              disabled={isResearching}>
               <i className={`fa-solid ${m.icon} text-sm`}></i>
               <span className="text-sm font-medium">{m.label}</span>
             </button>
@@ -565,12 +588,12 @@ const App: React.FC = () => {
             <span className="text-[10px] font-mono text-zinc-500 truncate">{MODELS.find(m => m.id === settings.selectedModel)?.name}</span>
           </div>
           <div className="flex items-center gap-4">
-             {loading && <div className="flex items-center gap-2 text-zinc-500 text-[10px] font-mono"><i className="fa-solid fa-cog fa-spin"></i> PROCESSING</div>}
+             {(loading || isResearching) && <div className="flex items-center gap-2 text-zinc-500 text-[10px] font-mono"><i className="fa-solid fa-cog fa-spin"></i> {isResearching ? `PHASE ${researchIteration}/4` : 'PROCESSING'}</div>}
              <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse"></div>
           </div>
         </header>
 
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-8">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-8 relative">
           <div className="max-w-4xl mx-auto w-full">
             {mode === ToolMode.WIKI_GEN && (
               <div className="space-y-6">
@@ -635,7 +658,7 @@ const App: React.FC = () => {
             )}
 
             {isChatView && (
-              <div className="space-y-12 pb-8">
+              <div className="space-y-12 pb-32">
                 {chatHistory.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-20 text-zinc-700 animate-in fade-in duration-1000">
                     <i className="fa-solid fa-terminal text-5xl mb-6 opacity-20"></i>
@@ -645,7 +668,7 @@ const App: React.FC = () => {
                 {chatHistory.map((msg, idx) => (
                   <div key={idx} className={`flex gap-6 group animate-in slide-in-from-bottom-2 duration-300 ${msg.role === 'assistant' ? 'bg-zinc-900/20 -mx-6 px-6 py-10 rounded-3xl border border-zinc-800/50 shadow-inner' : ''}`}>
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-black border transition-all ${msg.role === 'user' ? 'bg-zinc-800 border-zinc-700 text-zinc-500' : 'bg-zinc-100 border-white text-zinc-950 shadow-lg'}`}>
-                      {msg.role === 'user' ? 'USR' : 'SYS'}
+                      {msg.role === 'user' ? 'OBJ' : 'PHS'}
                     </div>
                     <div className="flex-1 min-w-0 relative">
                       {msg.role === 'assistant' && (
@@ -668,7 +691,20 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 ))}
-                {loading && mode !== ToolMode.DEEP_RESEARCH && (
+                
+                {mode === ToolMode.DEEP_RESEARCH && !isResearching && chatHistory.length > 1 && (
+                   <div className="flex justify-center mt-12 animate-in fade-in zoom-in duration-500">
+                     <button 
+                       onClick={handleExportFullResearch}
+                       className="group bg-emerald-500 hover:bg-emerald-400 text-zinc-950 px-8 py-4 rounded-2xl font-black text-xs uppercase tracking-widest shadow-2xl flex items-center gap-3 transition-all active:scale-95"
+                     >
+                       <i className="fa-solid fa-file-arrow-down text-sm group-hover:bounce"></i>
+                       Download Full Research Report
+                     </button>
+                   </div>
+                )}
+
+                {(loading || isResearching) && (
                   <div className="flex gap-6 animate-pulse bg-zinc-900/20 -mx-6 px-6 py-10 rounded-3xl border border-zinc-800/50 shadow-inner">
                     <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700 flex items-center justify-center flex-shrink-0">
                       <div className="w-2 h-2 bg-zinc-600 rounded-full animate-bounce"></div>
@@ -676,6 +712,7 @@ const App: React.FC = () => {
                     <div className="flex-1 space-y-4 py-1">
                       <div className="h-2 bg-zinc-800 rounded w-3/4"></div>
                       <div className="h-2 bg-zinc-800 rounded w-1/2"></div>
+                      <div className="h-2 bg-zinc-800 rounded w-5/6"></div>
                     </div>
                   </div>
                 )}
@@ -687,27 +724,37 @@ const App: React.FC = () => {
         {isChatView && (
           <div className="bg-zinc-950 border-t border-zinc-800 px-8 py-6 z-20">
             <div className="max-w-4xl mx-auto space-y-4">
-              <div className="bg-zinc-900 border border-zinc-800 p-2 rounded-[1.5rem] shadow-2xl flex gap-3 items-end ring-1 ring-zinc-800">
+              <div className={`bg-zinc-900 border border-zinc-800 p-2 rounded-[1.5rem] shadow-2xl flex gap-3 items-end ring-1 ring-zinc-800 transition-all ${isResearching ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
                 <button onClick={toggleRecording} className={`p-3.5 rounded-xl transition-all flex items-center justify-center flex-shrink-0 ${isRecording ? 'bg-red-900/30 text-red-400 ring-1 ring-red-900/50 shadow-[0_0_15px_rgba(239,68,68,0.2)]' : 'hover:bg-zinc-800 text-zinc-500'}`}>
                   <i className={`fa-solid ${isRecording ? 'fa-stop' : 'fa-microphone'} text-sm`}></i>
                 </button>
-                <textarea value={input} onChange={(e) => setInput(e.target.value)}
+                <textarea 
+                  value={input} 
+                  onChange={(e) => setInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleChat(); } }}
-                  placeholder={mode === ToolMode.DEEP_RESEARCH ? "Define research objective..." : "Structural interrogation..."}
-                  className="flex-1 bg-transparent border-none focus:ring-0 p-3.5 text-sm text-zinc-100 min-h-[52px] max-h-48 resize-none scrollbar-hide font-medium" rows={1} />
-                <button onClick={handleChat} disabled={loading || !input.trim()}
-                  className="bg-zinc-100 text-zinc-950 h-12 w-12 rounded-xl font-black hover:bg-white transition-all disabled:opacity-10 flex items-center justify-center shadow-lg active:scale-95 flex-shrink-0">
-                  <i className="fa-solid fa-chevron-up"></i>
+                  placeholder={mode === ToolMode.DEEP_RESEARCH ? "Define research objective (Automated 4-stage pipeline)..." : "Structural interrogation..."}
+                  disabled={isResearching}
+                  className="flex-1 bg-transparent border-none focus:ring-0 p-3.5 text-sm text-zinc-100 min-h-[52px] max-h-48 resize-none scrollbar-hide font-medium" rows={1} 
+                />
+                <button 
+                  onClick={handleChat} 
+                  disabled={loading || !input.trim() || isResearching}
+                  className="bg-zinc-100 text-zinc-950 h-12 w-12 rounded-xl font-black hover:bg-white transition-all disabled:opacity-10 flex items-center justify-center shadow-lg active:scale-95 flex-shrink-0"
+                >
+                  {isResearching ? <i className="fa-solid fa-spinner fa-spin text-xs"></i> : <i className="fa-solid fa-chevron-up"></i>}
                 </button>
               </div>
               <div className="flex justify-between items-center px-4">
                 <p className="text-[9px] text-zinc-600 font-black uppercase tracking-[0.2em]">Context: {repo.repoName} • {filteredRepo.files.length} active Files</p>
                 {mode === ToolMode.DEEP_RESEARCH && (
-                  <div className="flex items-center gap-2">
-                     <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">Synthesis Phase</span>
-                     <div className="flex gap-1">
+                  <div className="flex items-center gap-3">
+                     <span className="text-[9px] font-black text-zinc-500 uppercase tracking-widest">{isResearching ? `Stage: ${deepResearchPhases[researchIteration-1]}` : 'Synthesis Complete'}</span>
+                     <div className="flex gap-1.5">
                         {[1,2,3,4].map(s => (
-                          <div key={s} className={`w-2 h-0.5 rounded-full ${researchIteration >= s ? 'bg-emerald-500' : 'bg-zinc-800'}`}></div>
+                          <div 
+                            key={s} 
+                            className={`w-3 h-1 rounded-full transition-all duration-500 ${researchIteration >= s ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)]' : 'bg-zinc-800'}`}
+                          ></div>
                         ))}
                      </div>
                   </div>
