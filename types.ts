@@ -55,7 +55,9 @@ export interface SessionData {
   mode: ToolMode;
   repo: RepoContext;
   wiki: WikiStructure | null;
-  chatHistory: ChatMessage[];
-  researchIteration: number;
+  modeHistories?: Record<ToolMode, ChatMessage[]>;
+  modeIterations?: Record<ToolMode, number>;
+  chatHistory?: ChatMessage[]; // Deprecated, kept for backward compatibility
+  researchIteration?: number; // Deprecated, kept for backward compatibility
   settings: AppSettings;
 }

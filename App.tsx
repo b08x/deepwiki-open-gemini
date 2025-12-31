@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { ToolMode, RepoContext, WikiStructure, ChatMessage, RepoFile, AppSettings, SessionData } from './types';
 import { GeminiService } from './services/geminiService';
@@ -20,6 +19,8 @@ const MODELS = [
   { id: 'gemini-2.5-flash-lite-latest', name: 'Gemini Flash Lite', desc: 'Minimal latency for simple queries.' },
 ];
 
+const deepResearchPhases = ["PLANNING", "STRUCTURAL_MAPPING", "INTERACTION_ANALYSIS", "FINAL_SYNTHESIS"];
+
 const App: React.FC = () => {
   const [mode, setMode] = useState<ToolMode>(ToolMode.WIKI_GEN);
   const [repo, setRepo] = useState<RepoContext>(DEFAULT_REPO);
@@ -27,12 +28,28 @@ const App: React.FC = () => {
   const [filterQuery, setFilterQuery] = useState('');
   const [excludedPaths, setExcludedPaths] = useState<Set<string>>(new Set());
   const [wiki, setWiki] = useState<WikiStructure | null>(null);
-  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  
+  // State for all mode histories and progress
+  const [modeHistories, setModeHistories] = useState<Record<ToolMode, ChatMessage[]>>({
+    [ToolMode.WIKI_GEN]: [],
+    [ToolMode.RAG_CHAT]: [],
+    [ToolMode.DEEP_RESEARCH]: [],
+    [ToolMode.SIMPLE_CHAT]: [],
+    [ToolMode.BACKLOG_STEVE]: []
+  });
+
+  const [modeIterations, setModeIterations] = useState<Record<ToolMode, number>>({
+    [ToolMode.WIKI_GEN]: 0,
+    [ToolMode.RAG_CHAT]: 0,
+    [ToolMode.DEEP_RESEARCH]: 0,
+    [ToolMode.SIMPLE_CHAT]: 0,
+    [ToolMode.BACKLOG_STEVE]: 0
+  });
+
   const [loading, setLoading] = useState(false);
   const [isResearching, setIsResearching] = useState(false);
   const [isFetchingRepo, setIsFetchingRepo] = useState(false);
-  const [researchIteration, setResearchIteration] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [showFileList, setShowFileList] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -58,7 +75,26 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const mermaidRef = useRef<HTMLDivElement>(null);
 
+  // Computed state for current mode
+  const chatHistory = useMemo(() => modeHistories[mode], [modeHistories, mode]);
+  const researchIteration = useMemo(() => modeIterations[mode], [modeIterations, mode]);
+
+  // Load from session cache on mount
   useEffect(() => {
+    const cachedSession = sessionStorage.getItem('rm_session_cache');
+    if (cachedSession) {
+      try {
+        const data = JSON.parse(cachedSession);
+        if (data.modeHistories) setModeHistories(data.modeHistories);
+        if (data.modeIterations) setModeIterations(data.modeIterations);
+        if (data.repo) setRepo(data.repo);
+        if (data.wiki) setWiki(data.wiki);
+        if (data.mode) setMode(data.mode);
+      } catch (e) {
+        console.error("Failed to restore session cache", e);
+      }
+    }
+
     geminiRef.current = new GeminiService();
     githubRef.current.setToken(settings.githubToken);
     
@@ -71,6 +107,18 @@ const App: React.FC = () => {
       });
     }
   }, []);
+
+  // Persist to session cache
+  useEffect(() => {
+    const sessionCache = {
+      modeHistories,
+      modeIterations,
+      repo,
+      wiki,
+      mode
+    };
+    sessionStorage.setItem('rm_session_cache', JSON.stringify(sessionCache));
+  }, [modeHistories, modeIterations, repo, wiki, mode]);
 
   useEffect(() => {
     localStorage.setItem('repomechanic_settings', JSON.stringify(settings));
@@ -96,8 +144,8 @@ const App: React.FC = () => {
 
   // Steve Initial Greeting
   useEffect(() => {
-    if (mode === ToolMode.BACKLOG_STEVE && chatHistory.length === 0) {
-      setChatHistory([
+    if (mode === ToolMode.BACKLOG_STEVE && modeHistories[ToolMode.BACKLOG_STEVE].length === 0) {
+      updateModeHistory(ToolMode.BACKLOG_STEVE, [
         { 
           role: 'assistant', 
           content: "*Sighs digitally*\n\n`console.log(new Date());` // Let's see how much time we're wasting today.\n\nI've parsed the current 'mess' you've synchronized. It's... certainly something. If you want me to attempt transmuting your brain dumps or meeting notes into a backlog that a Jira board might actually accept without vomiting, upload your chaos or start typing. I'll be here, questioning my life choices." 
@@ -105,6 +153,17 @@ const App: React.FC = () => {
       ]);
     }
   }, [mode]);
+
+  const updateModeHistory = (targetMode: ToolMode, nextMessages: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+    setModeHistories(prev => ({
+      ...prev,
+      [targetMode]: typeof nextMessages === 'function' ? nextMessages(prev[targetMode]) : nextMessages
+    }));
+  };
+
+  const updateModeIteration = (targetMode: ToolMode, val: number) => {
+    setModeIterations(prev => ({ ...prev, [targetMode]: val }));
+  };
 
   const filteredRepo = useMemo(() => {
     const query = filterQuery.toLowerCase();
@@ -124,7 +183,21 @@ const App: React.FC = () => {
       const fetchedRepo = await githubRef.current.fetchRepository(repoUrlInput);
       setRepo(fetchedRepo);
       setWiki(null);
-      setChatHistory([]);
+      // Reset all histories for fresh context
+      setModeHistories({
+        [ToolMode.WIKI_GEN]: [],
+        [ToolMode.RAG_CHAT]: [],
+        [ToolMode.DEEP_RESEARCH]: [],
+        [ToolMode.SIMPLE_CHAT]: [],
+        [ToolMode.BACKLOG_STEVE]: []
+      });
+      setModeIterations({
+        [ToolMode.WIKI_GEN]: 0,
+        [ToolMode.RAG_CHAT]: 0,
+        [ToolMode.DEEP_RESEARCH]: 0,
+        [ToolMode.SIMPLE_CHAT]: 0,
+        [ToolMode.BACKLOG_STEVE]: 0
+      });
       setRepoUrlInput('');
       setFilterQuery('');
       setExcludedPaths(new Set());
@@ -198,8 +271,6 @@ const App: React.FC = () => {
       return;
     }
 
-    // Robust extraction: Search for the Backlog header and take everything from there to the end
-    // This ensures we get the stories, verdict, and suggestions without brittle string splitting.
     const backlogHeaderRegex = /### .*The Backlog/i;
     const match = lastSteveMsg.content.match(backlogHeaderRegex);
     
@@ -251,14 +322,14 @@ const App: React.FC = () => {
     if (!geminiRef.current) return;
     setIsResearching(true);
     setLoading(true);
-    setResearchIteration(0);
+    updateModeIteration(ToolMode.DEEP_RESEARCH, 0);
     
     let currentFindings = "";
     const totalSteps = 4;
 
     try {
       for (let i = 1; i <= totalSteps; i++) {
-        setResearchIteration(i);
+        updateModeIteration(ToolMode.DEEP_RESEARCH, i);
         const response = await geminiRef.current.deepResearch(
           filteredRepo, 
           query, 
@@ -275,13 +346,13 @@ const App: React.FC = () => {
           iteration: i 
         };
         
-        setChatHistory(prev => [...prev, assistantMsg]);
+        updateModeHistory(ToolMode.DEEP_RESEARCH, prev => [...prev, assistantMsg]);
         
         if (i < totalSteps) await new Promise(r => setTimeout(r, 800));
       }
     } catch (e) {
       console.error(e);
-      setChatHistory(prev => [...prev, { role: 'assistant', content: "Mechanism failure in reasoning engine. Research pipeline terminated." }]);
+      updateModeHistory(ToolMode.DEEP_RESEARCH, prev => [...prev, { role: 'assistant', content: "Mechanism failure in reasoning engine. Research pipeline terminated." }]);
     } finally {
       setIsResearching(false);
       setLoading(false);
@@ -299,30 +370,30 @@ const App: React.FC = () => {
     setInput('');
 
     if (mode === ToolMode.DEEP_RESEARCH) {
-      setChatHistory([{ role: 'user', content: currentInput }]);
+      updateModeHistory(ToolMode.DEEP_RESEARCH, [{ role: 'user', content: currentInput }]);
       await initiateResearchPipeline(currentInput);
       return;
     }
 
     const userMsg: ChatMessage = { role: 'user', content: currentInput };
-    setChatHistory(prev => [...prev, userMsg]);
+    updateModeHistory(mode, prev => [...prev, userMsg]);
     setLoading(true);
 
     try {
       let response = '';
       if (mode === ToolMode.RAG_CHAT) {
-        response = await geminiRef.current.ragChat(filteredRepo, currentInput, chatHistory, settings.selectedModel);
+        response = await geminiRef.current.ragChat(filteredRepo, currentInput, modeHistories[ToolMode.RAG_CHAT], settings.selectedModel);
       } else if (mode === ToolMode.SIMPLE_CHAT) {
         response = await geminiRef.current.simpleChat(filteredRepo, currentInput, settings.selectedModel);
       } else if (mode === ToolMode.BACKLOG_STEVE) {
-        response = await geminiRef.current.backlogInterrogator(filteredRepo, currentInput, chatHistory, settings.selectedModel);
+        response = await geminiRef.current.backlogInterrogator(filteredRepo, currentInput, modeHistories[ToolMode.BACKLOG_STEVE], settings.selectedModel);
       }
       
       const assistantMsg: ChatMessage = { role: 'assistant', content: response };
-      setChatHistory(prev => [...prev, assistantMsg]);
+      updateModeHistory(mode, prev => [...prev, assistantMsg]);
     } catch (e) {
       console.error(e);
-      setChatHistory(prev => [...prev, { role: 'assistant', content: "Mechanism failure in reasoning engine. Connection lost." }]);
+      updateModeHistory(mode, prev => [...prev, { role: 'assistant', content: "Mechanism failure in reasoning engine. Connection lost." }]);
     } finally {
       setLoading(false);
     }
@@ -330,13 +401,20 @@ const App: React.FC = () => {
 
   const handleExportSession = () => {
     const sessionData: SessionData = {
-      version: "1.0.0", timestamp: new Date().toISOString(), mode, repo, wiki, chatHistory, researchIteration, settings
+      version: "1.2.0", 
+      timestamp: new Date().toISOString(), 
+      mode, 
+      repo, 
+      wiki, 
+      modeHistories, 
+      modeIterations,
+      settings
     };
     const blob = new Blob([JSON.stringify(sessionData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `RM-Session-${repo.repoName}-${new Date().toISOString().slice(0,10)}.json`;
+    a.download = `RM-Session-Archive-${repo.repoName}-${new Date().toISOString().slice(0,10)}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -348,14 +426,36 @@ const App: React.FC = () => {
     reader.onload = (event) => {
       try {
         const data = JSON.parse(event.target?.result as string) as SessionData;
-        if (!data.repo || !data.chatHistory) throw new Error("Invalid session data format.");
-        setRepo(data.repo); setWiki(data.wiki); setChatHistory(data.chatHistory);
-        setMode(data.mode); setResearchIteration(data.researchIteration || 0); setSettings(data.settings);
-        setFilterQuery(''); setExcludedPaths(new Set()); setShowFileList(true);
-        alert(`Session Restored: ${data.repo.repoName}`);
+        if (!data.repo) throw new Error("Invalid session data format.");
+        
+        setRepo(data.repo); 
+        setWiki(data.wiki); 
+        setMode(data.mode);
+        setSettings(data.settings);
+        
+        // Restore comprehensive histories
+        if (data.modeHistories) {
+          setModeHistories(data.modeHistories);
+        } else if (data.chatHistory) {
+          // Backward compatibility for single mode history
+          updateModeHistory(data.mode, data.chatHistory);
+        }
+        
+        // Restore comprehensive iterations
+        if (data.modeIterations) {
+          setModeIterations(data.modeIterations);
+        } else if (data.researchIteration !== undefined) {
+          // Backward compatibility for single iteration count
+          updateModeIteration(data.mode, data.researchIteration);
+        }
+        
+        setFilterQuery(''); 
+        setExcludedPaths(new Set()); 
+        setShowFileList(true);
+        alert(`Session Archive Restored: ${data.repo.repoName}`);
       } catch (err) {
         console.error("Import failed", err);
-        alert("Failed to import session.");
+        alert("Failed to import session archive.");
       }
     };
     reader.readAsText(file);
@@ -421,7 +521,6 @@ const App: React.FC = () => {
   };
 
   const isChatView = mode === ToolMode.RAG_CHAT || mode === ToolMode.SIMPLE_CHAT || mode === ToolMode.DEEP_RESEARCH || mode === ToolMode.BACKLOG_STEVE;
-  const deepResearchPhases = ["PLANNING", "STRUCTURAL_MAPPING", "INTERACTION_ANALYSIS", "FINAL_SYNTHESIS"];
 
   return (
     <div className="flex h-screen bg-zinc-950 text-zinc-100 font-sans overflow-hidden">
@@ -612,7 +711,7 @@ const App: React.FC = () => {
             { id: ToolMode.DEEP_RESEARCH, icon: 'fa-microscope', label: 'Deep Research' },
             { id: ToolMode.SIMPLE_CHAT, icon: 'fa-comments', label: 'Simple Chat' },
           ].map(m => (
-            <button key={m.id} onClick={() => { setMode(m.id); setChatHistory([]); setResearchIteration(0); }}
+            <button key={m.id} onClick={() => setMode(m.id)}
               className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${mode === m.id ? 'bg-zinc-800 text-zinc-100 shadow-lg border border-zinc-700' : 'text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-300'}`}
               disabled={isResearching}>
               <i className={`fa-solid ${m.icon} text-sm`}></i>
