@@ -1,7 +1,7 @@
 
 import { GoogleGenAI, Type, GenerateContentResponse, Modality } from "@google/genai";
 import { RepoContext, WikiStructure, ChatMessage, WikiPage } from "../types";
-import { WIKI_STRUCTURE_SYSTEM_PROMPT, RAG_SYSTEM_PROMPT, SIMPLE_CHAT_SYSTEM_PROMPT } from "../constants";
+import { WIKI_STRUCTURE_SYSTEM_PROMPT, RAG_SYSTEM_PROMPT, SIMPLE_CHAT_SYSTEM_PROMPT, UNIFIED_PERSONA } from "../constants";
 
 export class GeminiService {
   private ai: GoogleGenAI;
@@ -157,6 +157,25 @@ export class GeminiService {
       },
     });
     return response.text || "";
+  }
+
+  async generateDiagramCode(content: string, model: string = "gemini-3-flash-preview"): Promise<string> {
+    const prompt = `Convert the following technical content into a Mermaid.js diagram. 
+    Choose the most appropriate diagram type (flowchart, sequenceDiagram, classDiagram, stateDiagram, or entityRelationship).
+    Return ONLY the raw mermaid code block, no preamble, no markdown formatting fences.
+    
+    Content:
+    ${content}`;
+
+    const response = await this.ai.models.generateContent({
+      model: model,
+      contents: prompt,
+      config: {
+        systemInstruction: UNIFIED_PERSONA + "\nYou are a technical visualization expert. You specialize in converting complex system descriptions into clear Mermaid.js diagrams.",
+      },
+    });
+
+    return (response.text || "").replace(/```mermaid/g, "").replace(/```/g, "").trim();
   }
 
   async transcribeAudio(audioData: Blob): Promise<string> {

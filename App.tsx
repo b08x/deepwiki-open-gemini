@@ -36,6 +36,11 @@ const App: React.FC = () => {
   const [showFileList, setShowFileList] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   
+  // Diagram state
+  const [isDiagramModalOpen, setIsDiagramModalOpen] = useState(false);
+  const [diagramCode, setDiagramCode] = useState('');
+  const [isGeneratingDiagram, setIsGeneratingDiagram] = useState(false);
+  
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem('repomechanic_settings');
     return saved ? JSON.parse(saved) : {
@@ -50,10 +55,22 @@ const App: React.FC = () => {
   const audioChunksRef = useRef<Blob[]>([]);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const mermaidRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     geminiRef.current = new GeminiService();
     githubRef.current.setToken(settings.githubToken);
+    
+    // Initialize Mermaid
+    // Fix: Access mermaid via window as any to avoid TypeScript error
+    if ((window as any).mermaid) {
+      (window as any).mermaid.initialize({
+        startOnLoad: true,
+        theme: 'dark',
+        securityLevel: 'loose',
+        fontFamily: 'JetBrains Mono',
+      });
+    }
   }, []);
 
   useEffect(() => {
@@ -70,6 +87,16 @@ const App: React.FC = () => {
       });
     }
   }, [chatHistory, loading]);
+
+  // Handle Mermaid re-renders when diagram code changes
+  useEffect(() => {
+    // Fix: Access mermaid via window as any to avoid TypeScript error
+    if (isDiagramModalOpen && diagramCode && mermaidRef.current && (window as any).mermaid) {
+      mermaidRef.current.removeAttribute('data-processed');
+      mermaidRef.current.innerHTML = diagramCode;
+      (window as any).mermaid.contentLoaded();
+    }
+  }, [isDiagramModalOpen, diagramCode]);
 
   // Derived filtered repository context
   const filteredRepo = useMemo(() => {
@@ -161,6 +188,44 @@ const App: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleExportMessageMarkdown = (content: string, idx: number) => {
+    const md = `---
+System: RepoMechanic Analysis
+Timestamp: ${new Date().toLocaleString()}
+Iteration: ${idx}
+---
+
+${content}`;
+
+    const blob = new Blob([md], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `RM-Analysis-Message-${idx}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleGenerateDiagram = async (content: string) => {
+    if (!geminiRef.current) return;
+    setIsGeneratingDiagram(true);
+    setDiagramCode('');
+    setIsDiagramModalOpen(true);
+    
+    try {
+      const code = await geminiRef.current.generateDiagramCode(content, settings.selectedModel);
+      setDiagramCode(code);
+    } catch (e) {
+      console.error("Failed to generate diagram", e);
+      alert("Mechanism error during visual synthesis.");
+      setIsDiagramModalOpen(false);
+    } finally {
+      setIsGeneratingDiagram(false);
+    }
   };
 
   const handleExportSession = () => {
@@ -337,6 +402,65 @@ const App: React.FC = () => {
         className="hidden" 
         accept=".json"
       />
+
+      {/* Diagram Modal */}
+      {isDiagramModalOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-xl animate-in fade-in zoom-in duration-300">
+           <div className="bg-zinc-900 border border-zinc-800 w-[90vw] h-[85vh] rounded-3xl p-8 flex flex-col shadow-2xl space-y-6">
+              <div className="flex justify-between items-center flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-zinc-100 text-zinc-950 flex items-center justify-center">
+                    <i className="fa-solid fa-project-diagram text-xs"></i>
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold">Visual Mechanism Mapping</h2>
+                    <p className="text-[10px] uppercase tracking-widest text-zinc-500 font-bold">Mermaid.js Structural Synthesis</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  {diagramCode && (
+                    <button 
+                      onClick={() => {
+                        const blob = new Blob([diagramCode], { type: 'text/plain' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'mechanism-diagram.mermaid';
+                        a.click();
+                      }}
+                      className="text-[10px] font-bold text-zinc-400 hover:text-white flex items-center gap-2 bg-zinc-800 px-4 py-2 rounded-xl border border-zinc-700 transition-colors"
+                    >
+                      <i className="fa-solid fa-download"></i> SOURCE
+                    </button>
+                  )}
+                  <button onClick={() => setIsDiagramModalOpen(false)} className="text-zinc-500 hover:text-white transition-colors bg-zinc-800 w-10 h-10 rounded-xl flex items-center justify-center border border-zinc-700">
+                    <i className="fa-solid fa-xmark text-lg"></i>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex-1 min-h-0 bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden relative flex items-center justify-center p-8">
+                {isGeneratingDiagram ? (
+                  <div className="flex flex-col items-center gap-6 text-zinc-500 animate-pulse">
+                     <i className="fa-solid fa-compass-drafting text-5xl"></i>
+                     <p className="text-xs font-mono tracking-widest uppercase">Synthesizing visual logic path...</p>
+                  </div>
+                ) : (
+                  <div className="w-full h-full overflow-auto flex items-center justify-center custom-scrollbar">
+                    <div ref={mermaidRef} className="mermaid flex justify-center w-full">
+                       {/* Mermaid SVG renders here */}
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex-shrink-0 flex justify-between items-center text-[10px] font-mono text-zinc-600 border-t border-zinc-800 pt-6 px-2">
+                 <span>ENGINE::MERMAID_JS_V10</span>
+                 <span>READY_STATE::RENDERED</span>
+              </div>
+           </div>
+        </div>
+      )}
 
       {/* Settings Modal */}
       {showSettings && (
@@ -733,7 +857,27 @@ const App: React.FC = () => {
                     <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-xs font-black border transition-all ${msg.role === 'user' ? 'bg-zinc-800 border-zinc-700 text-zinc-500' : 'bg-zinc-100 border-white text-zinc-950 shadow-lg'}`}>
                       {msg.role === 'user' ? 'USR' : 'SYS'}
                     </div>
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 relative">
+                      {/* Action Bar for Assistant Messages */}
+                      {msg.role === 'assistant' && (
+                        <div className="absolute top-0 right-0 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button 
+                            onClick={() => handleGenerateDiagram(msg.content)}
+                            title="Generate Diagram"
+                            className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-all text-zinc-500 flex items-center justify-center"
+                          >
+                            <i className="fa-solid fa-project-diagram text-[10px]"></i>
+                          </button>
+                          <button 
+                            onClick={() => handleExportMessageMarkdown(msg.content, idx)}
+                            title="Export to Markdown"
+                            className="w-8 h-8 rounded-lg bg-zinc-800 border border-zinc-700 hover:bg-zinc-700 hover:text-white transition-all text-zinc-500 flex items-center justify-center"
+                          >
+                            <i className="fa-solid fa-file-export text-[10px]"></i>
+                          </button>
+                        </div>
+                      )}
+
                       {msg.iteration && (
                         <div className="text-[9px] font-black text-emerald-500/60 uppercase tracking-[0.4em] mb-4 flex items-center gap-3">
                            ITERATION_LOG::{msg.iteration.toString().padStart(2, '0')}
